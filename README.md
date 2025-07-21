@@ -4,6 +4,10 @@
 
 A next-generation real-time communication library built in Rust, leveraging QUIC transport with Media over QUIC (MoQ) protocol for ultra-low latency media streaming.
 
+## Current Status
+
+This project is actively under development. Core transport and basic media functionality are implemented and functional. We're currently working on advanced features and platform-specific optimizations.
+
 ## What We're Building
 
 QuicRTC is revolutionizing real-time media communication by combining modern networking protocols with high-performance media processing. Our goal is to create a unified, cross-platform solution that delivers superior performance, reliability, and developer experience.
@@ -122,9 +126,6 @@ QuicRTC is built with a modular architecture consisting of several specialized c
 - **Async Runtime**: Tokio (for high-performance async I/O)
 - **Serialization**: Custom binary protocols for optimal performance
 
-## Current Status
-
-This project is actively under development. Core transport and basic media functionality are implemented and functional. We're currently working on advanced features and platform-specific optimizations.
 
 ### Getting Started (Development)
 
