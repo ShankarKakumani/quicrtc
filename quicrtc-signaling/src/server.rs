@@ -638,4 +638,9 @@ impl SignalingServer {
             .map(|room| room.participants.len())
             .sum()
     }
+
+    /// Handle a test connection (public wrapper for testing)
+    pub async fn handle_test_connection(&self, stream: tokio::net::TcpStream) {
+        self.handle_connection(stream).await;
+    }
 }

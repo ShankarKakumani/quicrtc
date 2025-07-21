@@ -19,7 +19,8 @@ pub mod video_render;
 // Note: capture module exports temporarily disabled due to refactoring
 // TODO: Re-enable once platform-specific implementations are complete
 pub use codecs::{
-    Codec, CodecConfig, CodecInfo, CodecRegistry, H264Codec, OpusCodec, VideoQuality,
+    Codec, CodecConfig, CodecInfo, CodecRegistry, H264Codec, OpusCodec, SyncDecoder, SyncEncoder,
+    VideoQuality,
 };
 pub use error::{ErrorCategory, MediaError, MediaResult};
 pub use processing::{
@@ -27,9 +28,9 @@ pub use processing::{
     QualityController, QualitySettings, TrackStats,
 };
 pub use render::{
-    AudioOutputDevice, AudioRenderConfig, AudioRenderStats, AudioRenderer, DefaultAudioRenderer,
-    DefaultVideoRenderer, RenderError, VideoDisplayConfig, VideoOutputDevice, VideoRenderConfig,
-    VideoRenderStats, VideoRenderer,
+    AudioOutputDevice, AudioRenderConfig, AudioRenderStats, AudioRenderer, CpalAudioRenderer,
+    DefaultAudioRenderer, DefaultVideoRenderer, RenderError, VideoDisplayConfig, VideoOutputDevice,
+    VideoRenderConfig, VideoRenderStats, VideoRenderer,
 };
 pub use tracks::{AudioFrame, AudioTrack, MediaFrame, VideoFrame, VideoTrack};
 pub use video_capture::{

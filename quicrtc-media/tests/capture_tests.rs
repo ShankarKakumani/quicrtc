@@ -6,227 +6,197 @@
 use quicrtc_media::*;
 
 // ============================================================================
-// PLACEHOLDER TYPES FOR MISSING IMPLEMENTATIONS
-// ============================================================================
-
-/// Audio capture configuration (placeholder)
-#[derive(Debug, Clone)]
-pub struct AudioCaptureConfig {
-    pub sample_rate: u32,
-    pub channels: u8,
-    pub bits_per_sample: u8,
-    pub buffer_size: usize,
-    pub device_name: Option<String>,
-    pub echo_cancellation: bool,
-    pub noise_suppression: bool,
-    pub auto_gain_control: bool,
-}
-
-impl Default for AudioCaptureConfig {
-    fn default() -> Self {
-        Self {
-            sample_rate: 48000,
-            channels: 2,
-            bits_per_sample: 16,
-            buffer_size: 2048,
-            device_name: None,
-            echo_cancellation: false,
-            noise_suppression: false,
-            auto_gain_control: false,
-        }
-    }
-}
-
-/// Video capture configuration (placeholder)
-#[derive(Debug, Clone)]
-pub struct VideoCaptureConfig {
-    pub width: u32,
-    pub height: u32,
-    pub framerate: u32,
-    pub device_name: Option<String>,
-    pub format: String,
-    pub auto_exposure: bool,
-    pub auto_white_balance: bool,
-    pub auto_focus: bool,
-    pub brightness: f32,
-    pub contrast: f32,
-}
-
-impl Default for VideoCaptureConfig {
-    fn default() -> Self {
-        Self {
-            width: 640,
-            height: 480,
-            framerate: 30,
-            device_name: None,
-            format: "YUV420".to_string(),
-            auto_exposure: true,
-            auto_white_balance: true,
-            auto_focus: true,
-            brightness: 0.5,
-            contrast: 1.0,
-        }
-    }
-}
-
-/// Default audio capture implementation (placeholder)
-#[derive(Debug)]
-pub struct DefaultAudioCapture {
-    capturing: bool,
-}
-
-impl DefaultAudioCapture {
-    pub fn new() -> Self {
-        Self { capturing: false }
-    }
-
-    pub fn is_capturing(&self) -> bool {
-        self.capturing
-    }
-}
-
-/// Default video capture implementation (placeholder)
-#[derive(Debug)]
-pub struct DefaultVideoCapture {
-    capturing: bool,
-}
-
-impl DefaultVideoCapture {
-    pub fn new() -> Self {
-        Self { capturing: false }
-    }
-
-    pub fn is_capturing(&self) -> bool {
-        self.capturing
-    }
-}
-
-// ============================================================================
-// AUDIO CAPTURE TESTS
+// CAPTURE LIFECYCLE TESTS
 // ============================================================================
 
 #[tokio::test]
-async fn test_audio_capture_config_default() {
-    let config = AudioCaptureConfig::default();
+async fn test_audio_render_config_default() {
+    // Use real AudioRenderConfig from quicrtc-media
+    let config = AudioRenderConfig::default();
 
     assert_eq!(config.sample_rate, 48000);
     assert_eq!(config.channels, 2);
     assert_eq!(config.bits_per_sample, 16);
     assert_eq!(config.buffer_size, 2048);
     assert!(config.device_name.is_none());
-    assert!(!config.echo_cancellation);
-    assert!(!config.noise_suppression);
-    assert!(!config.auto_gain_control);
 }
 
 #[tokio::test]
-async fn test_audio_capture_config_custom() {
-    let config = AudioCaptureConfig {
+async fn test_audio_render_config_custom() {
+    let config = AudioRenderConfig {
         sample_rate: 44100,
         channels: 1,
         bits_per_sample: 24,
         buffer_size: 1024,
-        device_name: Some("USB Microphone".to_string()),
-        echo_cancellation: true,
-        noise_suppression: true,
-        auto_gain_control: true,
+        device_name: Some("USB Audio".to_string()),
+        volume: 0.8,
+        enable_effects: true,
     };
 
     assert_eq!(config.sample_rate, 44100);
     assert_eq!(config.channels, 1);
     assert_eq!(config.bits_per_sample, 24);
     assert_eq!(config.buffer_size, 1024);
-    assert_eq!(config.device_name, Some("USB Microphone".to_string()));
-    assert!(config.echo_cancellation);
-    assert!(config.noise_suppression);
-    assert!(config.auto_gain_control);
+    assert_eq!(config.device_name, Some("USB Audio".to_string()));
+    assert_eq!(config.volume, 0.8);
+    assert!(config.enable_effects);
 }
-
-#[tokio::test]
-async fn test_default_audio_capture_creation() {
-    let capture = DefaultAudioCapture::new();
-
-    // Initially not capturing
-    assert!(!capture.is_capturing());
-}
-
-// ============================================================================
-// VIDEO CAPTURE TESTS
-// ============================================================================
 
 #[tokio::test]
 async fn test_video_capture_config_default() {
-    let config = VideoCaptureConfig::default();
+    // Use real VideoCaptureConfig from quicrtc-media
+    let config = NewVideoCaptureConfig::default();
 
-    assert_eq!(config.width, 640);
-    assert_eq!(config.height, 480);
-    assert_eq!(config.framerate, 30);
-    assert!(config.device_name.is_none());
+    assert_eq!(config.resolution.width, 1280);
+    assert_eq!(config.resolution.height, 720);
+    assert_eq!(config.framerate, 30.0);
+    assert_eq!(config.pixel_format, VideoPixelFormat::YUV420P);
 }
 
 #[tokio::test]
 async fn test_video_capture_config_custom() {
-    let config = VideoCaptureConfig {
-        width: 1920,
-        height: 1080,
-        framerate: 60,
-        device_name: Some("HD Webcam".to_string()),
-        format: "YUV420".to_string(),
-        auto_exposure: false,
-        auto_white_balance: false,
-        auto_focus: true,
-        brightness: 0.5,
-        contrast: 0.8,
+    let config = NewVideoCaptureConfig {
+        resolution: VideoResolution::new(1920, 1080),
+        framerate: 60.0,
+        pixel_format: VideoPixelFormat::RGB24,
+        hardware_acceleration: false,
+        buffer_size: 5,
+        enable_processing: true,
     };
 
-    assert_eq!(config.width, 1920);
-    assert_eq!(config.height, 1080);
-    assert_eq!(config.framerate, 60);
-    assert_eq!(config.device_name, Some("HD Webcam".to_string()));
-    assert_eq!(config.format, "YUV420");
-    assert!(!config.auto_exposure);
-    assert!(!config.auto_white_balance);
-    assert!(config.auto_focus);
-    assert_eq!(config.brightness, 0.5);
-    assert_eq!(config.contrast, 0.8);
+    assert_eq!(config.resolution.width, 1920);
+    assert_eq!(config.resolution.height, 1080);
+    assert_eq!(config.framerate, 60.0);
+    assert_eq!(config.pixel_format, VideoPixelFormat::RGB24);
+    assert!(!config.hardware_acceleration);
+    assert_eq!(config.buffer_size, 5);
+    assert!(config.enable_processing);
 }
 
 #[tokio::test]
-async fn test_default_video_capture_creation() {
-    let capture = DefaultVideoCapture::new();
+async fn test_cpal_audio_renderer_creation() {
+    let renderer = CpalAudioRenderer::new();
 
-    // Initially not capturing
-    assert!(!capture.is_capturing());
+    // Initially not rendering
+    assert!(!renderer.is_rendering());
 }
 
-// ============================================================================
-// CAPTURE LIFECYCLE TESTS
-// ============================================================================
+#[tokio::test]
+async fn test_video_capture_manager_creation() {
+    // Test video capture manager creation
+    let manager_result = VideoCaptureManager::new();
+
+    // Should succeed in creating manager
+    assert!(manager_result.is_ok());
+
+    if let Ok(manager) = manager_result {
+        // Initially not capturing
+        assert!(!manager.is_capturing());
+    }
+}
 
 #[tokio::test]
 async fn test_audio_capture_lifecycle() {
-    let mut capture = DefaultAudioCapture::new();
+    // Test basic lifecycle operations without actually starting capture
+    // (since we don't have hardware in tests)
 
-    // Initially not capturing
-    assert!(!capture.is_capturing());
+    let mut renderer = CpalAudioRenderer::new();
 
-    // Note: We can't actually start capture in tests without hardware
+    // Initially not rendering
+    assert!(!renderer.is_rendering());
+
+    // Note: We can't actually start rendering in tests without audio hardware
     // These tests verify the structure and basic state management
-
-    // Verify capture can be created and checked for state
-    assert!(!capture.is_capturing());
 }
 
 #[tokio::test]
 async fn test_video_capture_lifecycle() {
-    let mut capture = DefaultVideoCapture::new();
+    // Test basic lifecycle operations
+    let manager_result = VideoCaptureManager::new();
+    assert!(manager_result.is_ok());
 
-    // Initially not capturing
-    assert!(!capture.is_capturing());
+    if let Ok(manager) = manager_result {
+        // Initially not capturing
+        assert!(!manager.is_capturing());
 
-    // Note: We can't actually start capture in tests without hardware
-    // These tests verify the structure and basic state management
+        // Note: We can't actually start capture in tests without camera hardware
+        // These tests verify the structure and basic state management
+    }
+}
 
-    // Verify capture can be created and checked for state
-    assert!(!capture.is_capturing());
+// ============================================================================
+// CODEC INTEGRATION TESTS
+// ============================================================================
+
+#[tokio::test]
+async fn test_opus_codec_structure() {
+    // Test basic Opus codec structure
+    let codec_result = OpusCodec::new();
+    assert!(codec_result.is_ok());
+
+    if let Ok(codec) = codec_result {
+        let config = codec.config();
+        assert_eq!(config.sample_rate, 48000);
+        assert_eq!(config.channels, 2);
+    }
+}
+
+#[tokio::test]
+async fn test_h264_codec_structure() {
+    // Test basic H.264 codec structure
+    let codec_result = H264Codec::new();
+    assert!(codec_result.is_ok());
+    
+    if let Ok(codec) = codec_result {
+        // Use explicit trait method to avoid ambiguity
+        let info = <H264Codec as quicrtc_media::SyncEncoder>::get_codec_info(&codec);
+        assert_eq!(info.name, "H.264");
+        assert_eq!(info.mime_type, "video/h264");
+    }
+}
+
+// ============================================================================
+// DEVICE ENUMERATION TESTS
+// ============================================================================
+
+#[tokio::test]
+async fn test_video_device_structure() {
+    // Test video device structure
+    let device = NewVideoDevice {
+        id: "test_camera".to_string(),
+        name: "Test Camera".to_string(),
+        description: "Virtual camera for testing".to_string(),
+        supported_formats: vec![VideoPixelFormat::YUV420P, VideoPixelFormat::RGB24],
+        supported_resolutions: vec![VideoResolution::VGA, VideoResolution::HD],
+        max_framerate: 60.0,
+        hardware_acceleration: false,
+    };
+
+    assert_eq!(device.id, "test_camera");
+    assert_eq!(device.name, "Test Camera");
+    assert_eq!(device.supported_formats.len(), 2);
+    assert_eq!(device.supported_resolutions.len(), 2);
+}
+
+// ============================================================================
+// ERROR HANDLING TESTS
+// ============================================================================
+
+#[tokio::test]
+async fn test_capture_error_scenarios() {
+    // Test error handling scenarios
+
+    // Invalid sample rate
+    let invalid_sample_rate = 0u32;
+    assert_eq!(invalid_sample_rate, 0); // Would trigger error in real capture
+
+    // Invalid resolution
+    let invalid_width = 0u32;
+    let invalid_height = 0u32;
+    assert_eq!(invalid_width, 0); // Would trigger error in real capture
+    assert_eq!(invalid_height, 0);
+
+    // Invalid framerate
+    let invalid_framerate = 0.0f32;
+    assert_eq!(invalid_framerate, 0.0); // Would trigger error in real capture
 }

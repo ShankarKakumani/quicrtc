@@ -8,52 +8,196 @@ use std::time::{Duration, Instant};
 /// Media processor for handling MoQ objects and media frames
 #[derive(Debug)]
 pub struct MediaProcessor {
-    // TODO: Add media processor state
+    /// MoQ object assembler for frame reconstruction
+    assembler: MoqObjectAssembler,
+    /// Codec registry for encoding/decoding
+    codec_registry: crate::codecs::CodecRegistry,
 }
 
 impl MediaProcessor {
     /// Create new media processor
     pub fn new() -> Self {
-        Self {}
+        Self {
+            assembler: MoqObjectAssembler::new(),
+            codec_registry: crate::codecs::CodecRegistry::with_defaults().unwrap_or_default(),
+        }
     }
 
-    /// Process incoming MoQ object directly (no RTP depacketization)
+    /// Create new media processor with custom assembler configuration
+    pub fn with_assembler_config(config: AssemblerConfig) -> Self {
+        Self {
+            assembler: MoqObjectAssembler::with_config(config),
+            codec_registry: crate::codecs::CodecRegistry::with_defaults().unwrap_or_default(),
+        }
+    }
+
+    /// Process incoming MoQ object and potentially return a decoded media frame
     pub fn process_incoming_object(
         &mut self,
-        _object: MoqObject,
-    ) -> Result<MediaFrame, QuicRtcError> {
-        // TODO: Implement MoQ object to media frame conversion
-        Ok(MediaFrame::Video(VideoFrame {
-            width: 640,
-            height: 480,
-            data: vec![],
-            timestamp: 0,
-            is_keyframe: false,
-        }))
+        object: MoqObject,
+    ) -> Result<Option<MediaFrame>, QuicRtcError> {
+        // Use the assembler to reconstruct frames from MoQ objects
+        match self.assembler.add_object(object)? {
+            Some(assembled_frame) => {
+                // If the assembled frame contains encoded data, decode it
+                self.decode_assembled_frame(assembled_frame).map(Some)
+            }
+            None => Ok(None), // Frame not yet complete
+        }
     }
 
-    /// Prepare outgoing MoQ object directly from media frame (no RTP packetization)
+    /// Prepare outgoing MoQ object from encoded media frame
     pub fn prepare_outgoing_object(
         &mut self,
-        _frame: MediaFrame,
+        frame: MediaFrame,
+        track_namespace: TrackNamespace,
+        group_id: u64,
+        object_id: u64,
     ) -> Result<MoqObject, QuicRtcError> {
-        // TODO: Implement media frame to MoQ object conversion
-        use quicrtc_core::{MoqObjectStatus, TrackNamespace};
+        // Encode the frame first
+        let encoded_data = self.encode_media_frame(&frame)?;
+        let data_size = encoded_data.len();
 
+        // Create MoQ object with encoded data
         Ok(MoqObject {
-            track_namespace: TrackNamespace {
-                namespace: "example.com".to_string(),
-                track_name: "video".to_string(),
-            },
-            track_name: "video".to_string(),
-            group_id: 0,
-            object_id: 0,
+            track_namespace,
+            track_name: Self::get_track_name_from_frame(&frame),
+            group_id,
+            object_id,
             publisher_priority: 1,
-            payload: vec![],
+            payload: encoded_data,
             object_status: MoqObjectStatus::Normal,
+            created_at: std::time::Instant::now(),
+            size: data_size,
+        })
+    }
+
+    /// Create end-of-group MoQ object marker
+    pub fn prepare_end_of_group_object(
+        &mut self,
+        track_namespace: TrackNamespace,
+        group_id: u64,
+        object_id: u64,
+    ) -> Result<MoqObject, QuicRtcError> {
+        Ok(MoqObject {
+            track_namespace,
+            track_name: "unknown".to_string(), // Will be determined by context
+            group_id,
+            object_id,
+            publisher_priority: 1,
+            payload: vec![], // Empty payload for end-of-group marker
+            object_status: MoqObjectStatus::EndOfGroup,
             created_at: std::time::Instant::now(),
             size: 0,
         })
+    }
+
+    /// Get next completed frame from the assembler buffer
+    pub fn get_next_frame(&mut self, track: &TrackNamespace) -> Option<MediaFrame> {
+        self.assembler.get_next_frame(track)
+    }
+
+    /// Check if frames are available for a track
+    pub fn has_frames(&self, track: &TrackNamespace) -> bool {
+        self.assembler.has_frames(track)
+    }
+
+    /// Get assembler statistics for a track
+    pub fn get_track_stats(&self, track: &TrackNamespace) -> Option<&TrackStats> {
+        self.assembler.get_track_stats(track)
+    }
+
+    /// Process expired groups and return any salvageable frames
+    pub fn cleanup_expired_groups(&mut self) -> Result<Vec<MediaFrame>, QuicRtcError> {
+        let partial_frames = self.assembler.cleanup_expired_groups()?;
+
+        // Try to decode any salvageable partial frames
+        let mut decoded_frames = Vec::new();
+        for frame in partial_frames {
+            match self.decode_assembled_frame(frame) {
+                Ok(decoded) => decoded_frames.push(decoded),
+                Err(e) => {
+                    tracing::warn!("Failed to decode partial frame: {}", e);
+                    // Continue processing other frames
+                }
+            }
+        }
+
+        Ok(decoded_frames)
+    }
+
+    // Private helper methods
+
+    /// Decode an assembled frame if it contains encoded data
+    fn decode_assembled_frame(&self, frame: MediaFrame) -> Result<MediaFrame, QuicRtcError> {
+        match frame {
+            MediaFrame::Video(video_frame) => {
+                // Check if the frame data looks like encoded content
+                if self.is_encoded_video_data(&video_frame.data) {
+                    self.decode_video_frame(video_frame)
+                } else {
+                    // Already decoded or raw frame
+                    Ok(MediaFrame::Video(video_frame))
+                }
+            }
+            MediaFrame::Audio(audio_frame) => {
+                // Audio frames from assembler might be pre-decoded
+                Ok(MediaFrame::Audio(audio_frame))
+            }
+        }
+    }
+
+    /// Encode a media frame for MoQ transport
+    fn encode_media_frame(&self, frame: &MediaFrame) -> Result<Vec<u8>, QuicRtcError> {
+        match frame {
+            MediaFrame::Video(_) => {
+                // Use H.264 codec for video
+                if let Some(h264_codec) = self.codec_registry.get_codec("h264") {
+                    h264_codec.as_ref().encode_sync(frame)
+                } else {
+                    Err(QuicRtcError::UnsupportedCodec {
+                        codec: "h264".to_string(),
+                    })
+                }
+            }
+            MediaFrame::Audio(_) => {
+                // Use Opus codec for audio
+                if let Some(opus_codec) = self.codec_registry.get_codec("opus") {
+                    opus_codec.as_ref().encode_sync(frame)
+                } else {
+                    Err(QuicRtcError::UnsupportedCodec {
+                        codec: "opus".to_string(),
+                    })
+                }
+            }
+        }
+    }
+
+    /// Decode a video frame using available codecs
+    fn decode_video_frame(&self, video_frame: VideoFrame) -> Result<MediaFrame, QuicRtcError> {
+        // Try H.264 decoder first
+        if let Some(h264_codec) = self.codec_registry.get_codec("h264") {
+            h264_codec.as_ref().decode_sync(&video_frame.data)
+        } else {
+            // If no codec available, return as-is
+            Ok(MediaFrame::Video(video_frame))
+        }
+    }
+
+    /// Check if video data appears to be encoded (vs raw)
+    fn is_encoded_video_data(&self, data: &[u8]) -> bool {
+        // Simple heuristic: encoded data is typically much smaller than raw video
+        // Raw 640x480 RGB would be 640*480*3 = 921,600 bytes
+        // Encoded data is typically much smaller
+        data.len() < 100_000 && !data.is_empty()
+    }
+
+    /// Get appropriate track name from media frame type
+    fn get_track_name_from_frame(frame: &MediaFrame) -> String {
+        match frame {
+            MediaFrame::Video(_) => "video".to_string(),
+            MediaFrame::Audio(_) => "audio".to_string(),
+        }
     }
 }
 
@@ -502,13 +646,6 @@ impl MoqObjectAssembler {
         }
     }
 
-    fn assemble_video_frame(
-        &self,
-        group_assembly: GroupAssembly,
-    ) -> Result<MediaFrame, QuicRtcError> {
-        Self::assemble_video_frame_static(group_assembly)
-    }
-
     fn assemble_video_frame_static(
         group_assembly: GroupAssembly,
     ) -> Result<MediaFrame, QuicRtcError> {
@@ -537,13 +674,6 @@ impl MoqObjectAssembler {
             timestamp: group_assembly.group_id,
             is_keyframe: false, // TODO: Determine from MoQ object metadata
         }))
-    }
-
-    fn assemble_audio_frame(
-        &self,
-        group_assembly: GroupAssembly,
-    ) -> Result<MediaFrame, QuicRtcError> {
-        Self::assemble_audio_frame_static(group_assembly)
     }
 
     fn assemble_audio_frame_static(
@@ -588,13 +718,6 @@ impl MoqObjectAssembler {
                 .unwrap()
                 .as_millis() as u64,
         }))
-    }
-
-    fn assemble_data_frame(
-        &self,
-        group_assembly: GroupAssembly,
-    ) -> Result<MediaFrame, QuicRtcError> {
-        Self::assemble_data_frame_static(group_assembly)
     }
 
     fn assemble_data_frame_static(
@@ -1228,5 +1351,270 @@ impl CongestionDetector {
 impl Default for QualityController {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tracks::{AudioFrame, VideoFrame};
+    use quicrtc_core::MoqObjectStatus;
+
+    #[test]
+    fn test_media_processor_end_to_end() {
+        let mut processor = MediaProcessor::new();
+
+        // Create a test video frame
+        let video_frame = MediaFrame::Video(VideoFrame {
+            width: 640,
+            height: 480,
+            data: vec![128; 640 * 480 * 3], // Gray frame
+            timestamp: 12345,
+            is_keyframe: true,
+        });
+
+        // Test encoding a frame to MoQ object
+        let track_namespace = TrackNamespace {
+            namespace: "test.com".to_string(),
+            track_name: "video".to_string(),
+        };
+
+        let moq_object = processor
+            .prepare_outgoing_object(
+                video_frame.clone(),
+                track_namespace.clone(),
+                1, // group_id
+                0, // object_id
+            )
+            .unwrap();
+
+        // Verify the MoQ object was created correctly
+        assert_eq!(moq_object.track_namespace, track_namespace);
+        assert_eq!(moq_object.group_id, 1);
+        assert_eq!(moq_object.object_id, 0);
+        assert!(!moq_object.payload.is_empty()); // Should contain encoded data
+        assert_eq!(moq_object.object_status, MoqObjectStatus::Normal);
+
+        // Test processing the MoQ object back to a frame
+        let result = processor.process_incoming_object(moq_object).unwrap();
+
+        // Should not have a complete frame yet (need end-of-group marker)
+        assert!(result.is_none());
+
+        // Add end-of-group marker
+        let end_marker = processor
+            .prepare_end_of_group_object(
+                track_namespace.clone(),
+                1, // group_id
+                1, // object_id
+            )
+            .unwrap();
+
+        let result = processor.process_incoming_object(end_marker).unwrap();
+
+        // Now we should have a complete frame
+        assert!(result.is_some());
+        let decoded_frame = result.unwrap();
+
+        match decoded_frame {
+            MediaFrame::Video(decoded_video) => {
+                assert_eq!(decoded_video.width, 640);
+                assert_eq!(decoded_video.height, 480);
+                // Decoded frame should have some data (might be different due to encoding/decoding)
+                assert!(!decoded_video.data.is_empty());
+            }
+            _ => panic!("Expected video frame"),
+        }
+    }
+
+    #[test]
+    fn test_media_processor_multi_object_video_frame() {
+        let mut processor = MediaProcessor::new();
+
+        let track_namespace = TrackNamespace {
+            namespace: "test.com".to_string(),
+            track_name: "video".to_string(),
+        };
+
+        // Simulate a large video frame using the default H.264 resolution
+        let large_video_data = vec![42; 640 * 480 * 3]; // Default H.264 resolution
+        let video_frame = MediaFrame::Video(VideoFrame {
+            width: 640,  // Use default H.264 resolution
+            height: 480, // Use default H.264 resolution
+            data: large_video_data,
+            timestamp: 67890,
+            is_keyframe: true,
+        });
+
+        // Encode to get the payload
+        let encoded_data = processor.encode_media_frame(&video_frame).unwrap();
+
+        // Split into multiple objects (simulate MoQ fragmentation)
+        let chunk_size = encoded_data.len() / 3;
+        let mut objects = Vec::new();
+
+        for (i, chunk) in encoded_data.chunks(chunk_size).enumerate() {
+            let object = MoqObject {
+                track_namespace: track_namespace.clone(),
+                track_name: "video".to_string(),
+                group_id: 2,
+                object_id: i as u64,
+                publisher_priority: 1,
+                payload: chunk.to_vec(),
+                object_status: MoqObjectStatus::Normal,
+                created_at: std::time::Instant::now(),
+                size: chunk.len(),
+            };
+            objects.push(object);
+        }
+
+        // Add end-of-group marker
+        let end_marker = MoqObject {
+            track_namespace: track_namespace.clone(),
+            track_name: "video".to_string(),
+            group_id: 2,
+            object_id: objects.len() as u64,
+            publisher_priority: 1,
+            payload: vec![],
+            object_status: MoqObjectStatus::EndOfGroup,
+            created_at: std::time::Instant::now(),
+            size: 0,
+        };
+        objects.push(end_marker);
+
+        // Process objects one by one
+        let mut result = None;
+        let expected_last_index = objects.len() - 1; // Index of the end marker
+        for (i, object) in objects.into_iter().enumerate() {
+            let frame_result = processor.process_incoming_object(object).unwrap();
+            if let Some(frame) = frame_result {
+                result = Some(frame);
+                // Should only get a complete frame on the last object (end-of-group marker)
+                assert_eq!(i, expected_last_index);
+            }
+        }
+
+        // Verify we got a complete frame
+        assert!(result.is_some());
+        let decoded_frame = result.unwrap();
+
+        match decoded_frame {
+            MediaFrame::Video(decoded_video) => {
+                assert_eq!(decoded_video.width, 640);
+                assert_eq!(decoded_video.height, 480);
+                assert!(!decoded_video.data.is_empty());
+            }
+            _ => panic!("Expected video frame"),
+        }
+    }
+
+    #[test]
+    fn test_media_processor_audio_frame() {
+        let mut processor = MediaProcessor::new();
+
+        // Create a test audio frame matching Opus defaults
+        let audio_frame = MediaFrame::Audio(AudioFrame {
+            samples: vec![0.1; 1920], // 20ms at 48kHz stereo
+            sample_rate: 48000,
+            channels: 2,
+            timestamp: 54321,
+        });
+
+        let track_namespace = TrackNamespace {
+            namespace: "test.com".to_string(),
+            track_name: "audio".to_string(),
+        };
+
+        // Encode to MoQ object
+        let moq_object = processor
+            .prepare_outgoing_object(
+                audio_frame.clone(),
+                track_namespace.clone(),
+                5, // group_id
+                0, // object_id
+            )
+            .unwrap();
+
+        // Verify object
+        assert_eq!(moq_object.track_name, "audio");
+        assert!(!moq_object.payload.is_empty());
+
+        // Process back to frame
+        let result1 = processor.process_incoming_object(moq_object).unwrap();
+        assert!(result1.is_none()); // Need end-of-group
+
+        // Add end-of-group
+        let end_marker = processor
+            .prepare_end_of_group_object(
+                track_namespace.clone(),
+                5, // group_id
+                1, // object_id
+            )
+            .unwrap();
+
+        let result2 = processor.process_incoming_object(end_marker).unwrap();
+        assert!(result2.is_some());
+
+        let decoded_frame = result2.unwrap();
+        match decoded_frame {
+            MediaFrame::Audio(decoded_audio) => {
+                assert_eq!(decoded_audio.sample_rate, 48000);
+                assert_eq!(decoded_audio.channels, 2);
+                assert!(!decoded_audio.samples.is_empty());
+            }
+            _ => panic!("Expected audio frame"),
+        }
+    }
+
+    #[test]
+    fn test_media_processor_track_stats() {
+        let mut processor = MediaProcessor::new();
+
+        let track_namespace = TrackNamespace {
+            namespace: "test.com".to_string(),
+            track_name: "video".to_string(),
+        };
+
+        // Initially no stats
+        assert!(processor.get_track_stats(&track_namespace).is_none());
+
+        // Create and process an object
+        let object = MoqObject {
+            track_namespace: track_namespace.clone(),
+            track_name: "video".to_string(),
+            group_id: 1,
+            object_id: 0,
+            publisher_priority: 1,
+            payload: vec![1, 2, 3, 4],
+            object_status: MoqObjectStatus::Normal,
+            created_at: std::time::Instant::now(),
+            size: 4,
+        };
+
+        processor.process_incoming_object(object).unwrap();
+
+        // Now should have stats
+        let stats = processor.get_track_stats(&track_namespace).unwrap();
+        assert_eq!(stats.objects_received, 1);
+        assert_eq!(stats.groups_completed, 0); // No complete groups yet
+        assert_eq!(stats.frames_assembled, 0);
+    }
+
+    #[test]
+    fn test_assembler_configuration() {
+        let config = AssemblerConfig {
+            max_wait_time: Duration::from_millis(50),
+            max_pending_groups: 5,
+            max_frame_buffer_size: 20,
+            enable_retransmission: false,
+        };
+
+        let processor = MediaProcessor::with_assembler_config(config);
+
+        // Processor should be created successfully with custom config
+        assert!(!processor.has_frames(&TrackNamespace {
+            namespace: "test.com".to_string(),
+            track_name: "video".to_string(),
+        }));
     }
 }

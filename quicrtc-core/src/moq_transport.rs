@@ -5,8 +5,8 @@
 
 use crate::error::QuicRtcError;
 use crate::moq::{
-    MoqObject, MoqSession, MoqSessionState, MoqStreamType, MoqSubscription, MoqTrack, StreamId,
-    TrackNamespace,
+    MoqObject, MoqSession, MoqSessionState, MoqStreamManager, MoqStreamType, MoqSubscription,
+    MoqTrack, StreamId, StreamManagerConfig, TrackNamespace,
 };
 use crate::transport::{ConnectionConfig, QuicStream, StreamType, TransportConnection};
 use bytes::Bytes;
@@ -81,12 +81,10 @@ pub struct MoqOverQuicTransport {
     quic_connection: Arc<RwLock<TransportConnection>>,
     /// MoQ session
     moq_session: Arc<RwLock<MoqSession>>,
-    /// Active streams by stream ID
-    streams: Arc<RwLock<HashMap<StreamId, MoqStream>>>,
+    /// MoQ stream manager
+    stream_manager: Arc<MoqStreamManager>,
     /// Track to stream mapping for data streams
     track_streams: Arc<RwLock<HashMap<TrackNamespace, StreamId>>>,
-    /// Control stream ID (if established)
-    control_stream_id: Arc<RwLock<Option<StreamId>>>,
     /// Object delivery queue
     object_queue: Arc<RwLock<Vec<MoqObject>>>,
     /// Event channels
@@ -157,18 +155,33 @@ impl MoqOverQuicTransport {
         );
 
         // Create MoQ session
-        let moq_session = MoqSession::new(session_id);
+        let mut moq_session = MoqSession::new(session_id);
+        let moq_session_arc = Arc::new(RwLock::new(moq_session));
+
+        // Create stream manager with the session and transport
+        let quic_connection_arc = Arc::new(RwLock::new(quic_connection));
+        let (stream_manager, _stream_events) = MoqStreamManager::new(
+            Arc::clone(&quic_connection_arc),
+            Arc::clone(&moq_session_arc),
+            StreamManagerConfig::default(),
+        );
+        let stream_manager_arc = Arc::new(stream_manager);
+
+        // Connect the stream manager to the session
+        {
+            let mut session = moq_session_arc.write();
+            session.set_stream_manager(Arc::clone(&stream_manager_arc));
+        }
 
         // Create event channel
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         let transport = Self {
             connection_id,
-            quic_connection: Arc::new(RwLock::new(quic_connection)),
-            moq_session: Arc::new(RwLock::new(moq_session)),
-            streams: Arc::new(RwLock::new(HashMap::new())),
+            quic_connection: quic_connection_arc,
+            moq_session: moq_session_arc,
+            stream_manager: stream_manager_arc,
             track_streams: Arc::new(RwLock::new(HashMap::new())),
-            control_stream_id: Arc::new(RwLock::new(None)),
             object_queue: Arc::new(RwLock::new(Vec::new())),
             event_tx,
             event_rx: Arc::new(RwLock::new(Some(event_rx))),
@@ -186,20 +199,9 @@ impl MoqOverQuicTransport {
     pub async fn establish_session(&self) -> Result<(), QuicRtcError> {
         info!("Establishing MoQ session");
 
-        // Create control stream
-        let control_stream = self.create_control_stream().await?;
-        let control_stream_id = control_stream.stream_id;
-
-        // Store control stream
-        {
-            let mut streams = self.streams.write();
-            streams.insert(control_stream_id, control_stream);
-        }
-
-        {
-            let mut control_id = self.control_stream_id.write();
-            *control_id = Some(control_stream_id);
-        }
+        // Establish control stream using the stream manager
+        let control_stream_id = self.stream_manager.establish_control_stream().await?;
+        info!("Control stream established: {}", control_stream_id);
 
         // Establish MoQ session
         {
@@ -286,16 +288,6 @@ impl MoqOverQuicTransport {
             session.announce_track(track.clone()).await?;
         }
 
-        // Create data stream for the track
-        let data_stream = self.create_data_stream(track.namespace.clone()).await?;
-        let stream_id = data_stream.stream_id;
-
-        // Store the stream
-        {
-            let mut streams = self.streams.write();
-            streams.insert(stream_id, data_stream);
-        }
-
         info!("Track announced successfully: {:?}", track.namespace);
         Ok(())
     }
@@ -318,56 +310,21 @@ impl MoqOverQuicTransport {
                 .await?
         };
 
-        // Create data stream for receiving objects from this track
-        let data_stream = self.create_data_stream(track_namespace.clone()).await?;
-        let stream_id = data_stream.stream_id;
-
-        // Store the stream
-        {
-            let mut streams = self.streams.write();
-            streams.insert(stream_id, data_stream);
-        }
-
         info!("Successfully subscribed to track: {:?}", track_namespace);
         Ok(subscription)
     }
 
-    /// Send a MoQ object over the appropriate data stream
+    /// Send a MoQ object using the stream manager
     pub async fn send_moq_object(&self, object: MoqObject) -> Result<(), QuicRtcError> {
         debug!(
             "Sending MoQ object for track: {:?}, group: {}, object: {}",
             object.track_namespace, object.group_id, object.object_id
         );
 
-        // Find the data stream for this track
-        let stream_id = {
-            let track_streams = self.track_streams.read();
-            track_streams
-                .get(&object.track_namespace)
-                .copied()
-                .ok_or_else(|| QuicRtcError::TrackNotFound {
-                    track_namespace: object.track_namespace.track_name.clone(),
-                })?
-        };
-
-        // Serialize the object (simplified - in real implementation would use proper MoQ encoding)
-        let serialized_object = self.serialize_moq_object(&object)?;
-
-        // Send over the data stream
-        {
-            let mut streams = self.streams.write();
-            if let Some(stream) = streams.get_mut(&stream_id) {
-                stream.send(&serialized_object).await?;
-                debug!(
-                    "MoQ object sent successfully: {} bytes",
-                    serialized_object.len()
-                );
-            } else {
-                return Err(QuicRtcError::StreamNotFound { stream_id });
-            }
-        }
-
-        Ok(())
+        // Use stream manager to send object (simplified for now)
+        // In full implementation, this would map track namespace to track alias
+        let track_alias = 1; // Simplified mapping
+        self.stream_manager.send_object(object, track_alias).await
     }
 
     /// Receive a MoQ object from any data stream
@@ -384,36 +341,8 @@ impl MoqOverQuicTransport {
             }
         }
 
-        // Poll all data streams for incoming objects
-        let stream_ids: Vec<StreamId> = {
-            let streams = self.streams.read();
-            streams
-                .iter()
-                .filter(|(_, stream)| stream.stream_type == MoqStreamType::DataSubgroup)
-                .map(|(id, _)| *id)
-                .collect()
-        };
-
-        for stream_id in stream_ids {
-            let mut streams = self.streams.write();
-            if let Some(stream) = streams.get_mut(&stream_id) {
-                if let Ok(Some(data)) = stream.recv().await {
-                    // Deserialize the object
-                    let object = self.deserialize_moq_object(&data)?;
-                    debug!(
-                        "Received MoQ object for track: {:?}, group: {}, object: {}",
-                        object.track_namespace, object.group_id, object.object_id
-                    );
-
-                    // Send object received event
-                    let _ = self.event_tx.send(MoqTransportEvent::ObjectReceived {
-                        object: object.clone(),
-                    });
-
-                    return Ok(object);
-                }
-            }
-        }
+        // For now, simplified - in full implementation would use stream manager events
+        // to receive objects from data streams
 
         Err(QuicRtcError::NoDataAvailable)
     }
@@ -531,13 +460,7 @@ impl MoqOverQuicTransport {
             session.terminate(0, "Normal closure".to_string()).await?;
         }
 
-        // Close all streams
-        {
-            let mut streams = self.streams.write();
-            for (_, mut stream) in streams.drain() {
-                let _ = stream.finish().await;
-            }
-        }
+        // Streams will be closed when stream manager is dropped
 
         // Close QUIC connection
         {

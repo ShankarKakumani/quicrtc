@@ -30,8 +30,9 @@ parking_lot = { workspace = true }
 tokio-test = { workspace = true }
 
 [features]
-default = ["opus"]
+default = ["opus", "h264"]
 opus = ["audiopus"]
 h264 = ["openh264"]
 audio = ["opus"]
 video = ["h264"]
+codecs = ["opus", "h264"]

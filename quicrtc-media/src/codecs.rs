@@ -971,4 +971,158 @@ impl CodecConfig {
     }
 }
 
-// Tests moved to tests/ directory
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tracks::{AudioFrame, MediaFrame, VideoFrame};
+
+    #[test]
+    fn test_opus_codec_real_implementation() {
+        // Test that Opus codec is using real audiopus library, not placeholder
+        let opus = OpusCodec::new().unwrap();
+
+        // Create a simple audio frame (match default opus config: 2 channels, 48kHz, 20ms frame)
+        // 48000 samples/sec * 0.02 sec * 2 channels = 1920 samples
+        let samples_per_frame = opus.samples_per_frame() * opus.config().channels as usize;
+        let mut samples = Vec::with_capacity(samples_per_frame);
+        for i in 0..samples_per_frame {
+            // Generate a simple sine wave pattern
+            let t = i as f32 / 48000.0;
+            samples.push(0.1 * (2.0 * std::f32::consts::PI * 440.0 * t).sin());
+        }
+
+        let audio_frame = AudioFrame {
+            samples,
+            sample_rate: 48000,
+            channels: 2, // Match default opus config
+            timestamp: 12345,
+        };
+
+        let media_frame = MediaFrame::Audio(audio_frame.clone());
+
+        // Encode the frame
+        let encoded = opus.encode_sync(&media_frame).unwrap();
+
+        // Real Opus encoding should produce more sophisticated output than placeholder
+        // Placeholder just adds metadata (9 bytes) + some compressed data
+        // Real Opus should have different characteristics
+
+        #[cfg(feature = "opus")]
+        {
+            // Real Opus should produce encoded data that's not just metadata + pattern
+            assert!(
+                encoded.len() > 20,
+                "Real Opus encoding should produce substantial output"
+            );
+            // Real opus encoding of this pattern should not start with sample rate bytes
+            assert_ne!(
+                &encoded[0..4],
+                &48000u32.to_be_bytes(),
+                "Should not be placeholder format"
+            );
+        }
+
+        #[cfg(not(feature = "opus"))]
+        {
+            // Placeholder should start with sample rate
+            assert_eq!(
+                &encoded[0..4],
+                &48000u32.to_be_bytes(),
+                "Placeholder should start with sample rate"
+            );
+        }
+    }
+
+    #[test]
+    fn test_h264_codec_real_implementation() {
+        // Test that H.264 codec is using real openh264 library, not placeholder
+        let h264 = H264Codec::new().unwrap();
+
+        // Create a simple video frame
+        let video_frame = VideoFrame {
+            width: 640,
+            height: 480,
+            data: vec![128; 640 * 480 * 3], // Gray frame in RGB
+            timestamp: 12345,
+            is_keyframe: true,
+        };
+
+        let media_frame = MediaFrame::Video(video_frame.clone());
+
+        // Encode the frame
+        let encoded = h264.encode_sync(&media_frame).unwrap();
+
+        #[cfg(feature = "h264")]
+        {
+            // Real H.264 should produce encoded data, not placeholder format
+            assert!(
+                encoded.len() > 20,
+                "Real H.264 encoding should produce substantial output"
+            );
+            // Real H.264 should not start with "H264" magic bytes (that's placeholder)
+            assert_ne!(&encoded[0..4], b"H264", "Should not be placeholder format");
+        }
+
+        #[cfg(not(feature = "h264"))]
+        {
+            // Placeholder should start with "H264" magic bytes
+            assert_eq!(
+                &encoded[0..4],
+                b"H264",
+                "Placeholder should start with H264 magic"
+            );
+        }
+    }
+
+    #[test]
+    fn test_codec_info_real_vs_placeholder() {
+        // Test that codec info is consistent regardless of real vs placeholder
+        let opus = OpusCodec::new().unwrap();
+        let h264 = H264Codec::new().unwrap();
+
+        let opus_info = SyncEncoder::get_codec_info(&opus);
+        assert_eq!(opus_info.name, "Opus");
+        assert_eq!(opus_info.mime_type, "audio/opus");
+        assert_eq!(opus_info.sample_rate, Some(48000));
+        assert_eq!(opus_info.channels, Some(2));
+
+        let h264_info = SyncEncoder::get_codec_info(&h264);
+        assert_eq!(h264_info.name, "H.264");
+        assert_eq!(h264_info.mime_type, "video/h264");
+        assert!(h264_info.sample_rate.is_none());
+        assert!(h264_info.channels.is_none());
+    }
+
+    #[test]
+    fn test_codec_registry_with_real_implementations() {
+        // Test that codec registry works with real implementations
+        let registry = CodecRegistry::with_defaults().unwrap();
+
+        let available_codecs = registry.list_codecs();
+        assert!(available_codecs.contains(&"opus".to_string()));
+        assert!(available_codecs.contains(&"h264".to_string()));
+
+        let opus_codec = registry.get_codec("opus").unwrap();
+        let h264_codec = registry.get_codec("h264").unwrap();
+
+        // Test codec info is accessible
+        let opus_info = SyncEncoder::get_codec_info(opus_codec.as_ref());
+        let h264_info = SyncEncoder::get_codec_info(h264_codec.as_ref());
+
+        assert_eq!(opus_info.mime_type, "audio/opus");
+        assert_eq!(h264_info.mime_type, "video/h264");
+
+        // Test MIME type lookup
+        let opus_by_mime = registry.get_codec_by_mime_type("audio/opus").unwrap();
+        let h264_by_mime = registry.get_codec_by_mime_type("video/h264").unwrap();
+
+        assert_eq!(
+            SyncEncoder::get_codec_info(opus_by_mime.as_ref()).name,
+            "Opus"
+        );
+        assert_eq!(
+            SyncEncoder::get_codec_info(h264_by_mime.as_ref()).name,
+            "H.264"
+        );
+    }
+}

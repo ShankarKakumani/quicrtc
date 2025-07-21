@@ -2,6 +2,8 @@
 //!
 //! This module provides native macOS video capture using AVFoundation
 //! with optional Metal acceleration for high-performance applications.
+//!
+//! **STATUS: ARCHITECTURAL STUB** - Framework in place, implementation needed
 
 use super::PlatformCapture;
 use crate::error::MediaError;
@@ -9,6 +11,7 @@ use crate::error::MediaError;
 /// AVFoundation-based video capture implementation
 pub struct AVFoundationCapture {
     // TODO: Add AVCaptureSession, AVCaptureDevice, etc.
+    // Need: objc/swift bindings, AVFoundation framework integration
 }
 
 impl AVFoundationCapture {
@@ -21,19 +24,25 @@ impl AVFoundationCapture {
 
 impl PlatformCapture for AVFoundationCapture {
     fn start_capture(&self) -> Result<(), MediaError> {
-        // TODO: Implement AVFoundation capture start
-        tracing::info!("Starting AVFoundation capture (stub)");
-        Ok(())
+        // TODO: Implement actual AVFoundation capture
+        // 1. Create AVCaptureSession
+        // 2. Configure AVCaptureDevice for camera
+        // 3. Set up AVCaptureVideoDataOutput
+        // 4. Start session with startRunning
+        todo!("Implement AVFoundation capture start with actual session management")
     }
 
     fn stop_capture(&self) -> Result<(), MediaError> {
         // TODO: Implement AVFoundation capture stop
-        tracing::info!("Stopping AVFoundation capture (stub)");
-        Ok(())
+        // 1. Stop session with stopRunning
+        // 2. Clean up capture outputs
+        // 3. Release AVFoundation objects
+        todo!("Implement AVFoundation capture stop")
     }
 
     fn get_devices(&self) -> Result<Vec<String>, MediaError> {
-        // TODO: Enumerate AVCaptureDevice objects
-        Ok(vec!["AVFoundation Camera".to_string()])
+        // TODO: Use AVCaptureDevice.devices(for: .video) to enumerate real cameras
+        // Should return actual camera devices, not hardcoded list
+        todo!("Implement AVFoundation device enumeration using AVCaptureDevice")
     }
 }

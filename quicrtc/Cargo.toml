@@ -68,7 +68,13 @@ path = "../examples/video_capture_render_demo.rs"
 
 [features]
 default = ["full"]
-full = ["media", "signaling", "diagnostics"]
+full = ["media", "signaling", "diagnostics", "codecs"]
 media = ["dep:quicrtc-media"]
 signaling = ["dep:quicrtc-signaling"]
 diagnostics = ["dep:quicrtc-diagnostics"]
+# Codec features - pass through to media crate
+codecs = ["media", "quicrtc-media/codecs"]
+opus = ["media", "quicrtc-media/opus"]
+h264 = ["media", "quicrtc-media/h264"]
+audio = ["media", "quicrtc-media/audio"]
+video = ["media", "quicrtc-media/video"]

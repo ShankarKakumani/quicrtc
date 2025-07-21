@@ -801,11 +801,21 @@ pub struct WebSocketTransport {
     endpoint: String,
 }
 
-/// WebRTC transport wrapper (placeholder for future implementation)
+/// WebRTC transport wrapper 
+/// 
+/// **STATUS: ARCHITECTURAL PLACEHOLDER** - Framework for future WebRTC integration
+/// This exists to provide a complete fallback chain but is not yet implemented.
+/// In production, this would integrate with a WebRTC library for maximum compatibility.
 #[derive(Debug)]
 pub struct WebRtcTransport {
-    // Placeholder - would integrate with WebRTC library
+    /// Target endpoint for connection
+    /// TODO: Replace with actual WebRTC peer connection objects
     endpoint: String,
+    // TODO: Add fields for:
+    // - RTCPeerConnection
+    // - RTCDataChannel for data transport  
+    // - ICE candidate management
+    // - STUN/TURN server configuration
 }
 
 /// QUIC stream wrapper
@@ -1064,24 +1074,28 @@ impl TransportConnection {
     }
 
     /// Establish WebRTC compatibility connection
+    /// 
+    /// **STATUS: ARCHITECTURAL PLACEHOLDER** - Framework for future implementation
     async fn establish_webrtc_compat(
         _endpoint: SocketAddr,
         config: ConnectionConfig,
         _connection_id: Uuid,
     ) -> Result<TransportInner, QuicRtcError> {
-        // Placeholder implementation - would integrate with WebRTC library
-        debug!("WebRTC compatibility mode (placeholder implementation)");
+        // TODO: Implement actual WebRTC connection establishment
+        // 1. Create RTCPeerConnection with STUN/TURN servers
+        // 2. Create data channel for MoQ transport
+        // 3. Handle ICE candidate exchange via signaling server
+        // 4. Establish peer-to-peer connection
+        // 5. Return WebRtcTransport with active data channel
+        
+        debug!("WebRTC compatibility mode (not yet implemented)");
 
-        // For testing purposes, simulate connection attempt
-        // In a real implementation, this would use WebRTC APIs
-
-        // Simulate connection timeout
+        // Simulate connection timeout for realistic testing
         tokio::time::sleep(config.timeout).await;
 
-        // For now, always fail to simulate realistic behavior
-        // In production, this would attempt actual WebRTC connection
+        // Always fail until actual implementation is added
         Err(QuicRtcError::Transport {
-            reason: "WebRTC connection failed (placeholder implementation)".to_string(),
+            reason: "WebRTC fallback not yet implemented - architectural placeholder".to_string(),
         })
     }
 

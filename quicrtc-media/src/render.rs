@@ -621,33 +621,12 @@ impl AudioRenderer for DefaultAudioRenderer {
     }
 
     fn list_devices(&self) -> Result<Vec<AudioOutputDevice>, RenderError> {
-        // Return mock devices for now
-        Ok(vec![
-            AudioOutputDevice {
-                id: "default".to_string(),
-                name: "Default Audio Output".to_string(),
-                is_default: true,
-                supported_sample_rates: vec![44100, 48000],
-                supported_channels: vec![1, 2],
-                max_volume: 1.0,
-            },
-            AudioOutputDevice {
-                id: "builtin_speakers".to_string(),
-                name: "Built-in Speakers".to_string(),
-                is_default: false,
-                supported_sample_rates: vec![44100, 48000],
-                supported_channels: vec![2],
-                max_volume: 1.0,
-            },
-            AudioOutputDevice {
-                id: "headphones".to_string(),
-                name: "Headphones".to_string(),
-                is_default: false,
-                supported_sample_rates: vec![44100, 48000],
-                supported_channels: vec![2],
-                max_volume: 1.0,
-            },
-        ])
+        // TODO: Implement real device enumeration
+        // DefaultAudioRenderer is a fallback implementation
+        // For production use, prefer CpalAudioRenderer which enumerates real devices
+        Err(RenderError::HardwareError {
+            reason: "DefaultAudioRenderer doesn't support real device enumeration. Use CpalAudioRenderer instead.".to_string(),
+        })
     }
 
     fn is_rendering(&self) -> bool {
@@ -1487,53 +1466,12 @@ impl VideoRenderer for DefaultVideoRenderer {
     }
 
     fn list_devices(&self) -> Result<Vec<VideoOutputDevice>, RenderError> {
-        // Return mock devices for now
-        Ok(vec![
-            VideoOutputDevice {
-                id: "default".to_string(),
-                name: "Default Display".to_string(),
-                is_default: true,
-                supported_resolutions: vec![(1920, 1080), (1280, 720), (640, 480)],
-                supported_refresh_rates: vec![30, 60, 120],
-                supported_formats: vec![
-                    "YUV420".to_string(),
-                    "RGB24".to_string(),
-                    "NV12".to_string(),
-                ],
-                has_hardware_acceleration: true,
-                max_brightness: 1.0,
-            },
-            VideoOutputDevice {
-                id: "builtin_display".to_string(),
-                name: "Built-in Display".to_string(),
-                is_default: false,
-                supported_resolutions: vec![(1920, 1080), (1366, 768), (1280, 720)],
-                supported_refresh_rates: vec![60],
-                supported_formats: vec!["YUV420".to_string(), "RGB24".to_string()],
-                has_hardware_acceleration: true,
-                max_brightness: 1.0,
-            },
-            VideoOutputDevice {
-                id: "external_monitor".to_string(),
-                name: "External Monitor".to_string(),
-                is_default: false,
-                supported_resolutions: vec![
-                    (3840, 2160), // 4K
-                    (2560, 1440), // 1440p
-                    (1920, 1080), // 1080p
-                    (1280, 720),  // 720p
-                ],
-                supported_refresh_rates: vec![30, 60, 120, 144],
-                supported_formats: vec![
-                    "YUV420".to_string(),
-                    "YUV444".to_string(),
-                    "RGB24".to_string(),
-                    "RGB32".to_string(),
-                ],
-                has_hardware_acceleration: true,
-                max_brightness: 1.0,
-            },
-        ])
+        // TODO: Implement real display enumeration
+        // DefaultVideoRenderer is a fallback implementation for simulation
+        // For production use, implement platform-specific display enumeration
+        Err(RenderError::HardwareError {
+            reason: "DefaultVideoRenderer doesn't support real display enumeration. Implement platform-specific renderer.".to_string(),
+        })
     }
 
     fn is_rendering(&self) -> bool {

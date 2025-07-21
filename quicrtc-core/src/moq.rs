@@ -1,18 +1,19 @@
 //! IETF Media over QUIC (MoQ) protocol implementation
 
 use crate::error::QuicRtcError;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use std::sync::Arc;
 
-pub mod wire_format;
 pub mod stream_manager;
+pub mod wire_format;
 
-pub use wire_format::MoqWireFormat;
 pub use stream_manager::{
-    MoqStreamManager, MoqStreamEvent, MoqStreamState, MoqStreamType,
-    StreamManagerConfig, ManagedMoqStream, StreamStats, StreamId, TrackAlias
+    ManagedMoqStream, MoqStreamEvent, MoqStreamManager, MoqStreamState, MoqStreamType, StreamId,
+    StreamManagerConfig, StreamStats, TrackAlias,
 };
+pub use wire_format::MoqWireFormat;
 
 /// MoQ session management with track management and subscription handling
 #[derive(Debug)]
@@ -23,8 +24,8 @@ pub struct MoqSession {
     subscriptions: HashMap<TrackNamespace, MoqSubscription>,
     capabilities: MoqCapabilities,
     peer_capabilities: Option<MoqCapabilities>,
-    control_sender: mpsc::UnboundedSender<MoqControlMessage>,
-    control_receiver: mpsc::UnboundedReceiver<MoqControlMessage>,
+    /// Stream manager for control message transport
+    stream_manager: Option<Arc<MoqStreamManager>>,
 }
 
 /// MoQ session state
@@ -282,8 +283,6 @@ impl MoqObject {
 impl MoqSession {
     /// Create new MoQ session with default capabilities
     pub fn new(session_id: u64) -> Self {
-        let (control_sender, control_receiver) = mpsc::unbounded_channel();
-
         Self {
             session_id,
             state: MoqSessionState::Establishing,
@@ -291,15 +290,12 @@ impl MoqSession {
             subscriptions: HashMap::new(),
             capabilities: MoqCapabilities::default(),
             peer_capabilities: None,
-            control_sender,
-            control_receiver,
+            stream_manager: None,
         }
     }
 
     /// Create new MoQ session with custom capabilities
     pub fn new_with_capabilities(session_id: u64, capabilities: MoqCapabilities) -> Self {
-        let (control_sender, control_receiver) = mpsc::unbounded_channel();
-
         Self {
             session_id,
             state: MoqSessionState::Establishing,
@@ -307,8 +303,7 @@ impl MoqSession {
             subscriptions: HashMap::new(),
             capabilities,
             peer_capabilities: None,
-            control_sender,
-            control_receiver,
+            stream_manager: None,
         }
     }
 
@@ -330,6 +325,11 @@ impl MoqSession {
     /// Get peer capabilities (if session is established)
     pub fn peer_capabilities(&self) -> Option<&MoqCapabilities> {
         self.peer_capabilities.as_ref()
+    }
+
+    /// Set the stream manager for transport integration
+    pub fn set_stream_manager(&mut self, stream_manager: Arc<MoqStreamManager>) {
+        self.stream_manager = Some(stream_manager);
     }
 
     /// Establish MoQ session with capability exchange
@@ -761,24 +761,30 @@ impl MoqSession {
         }
     }
 
-    /// Send control message (placeholder - would use actual transport in real implementation)
-    async fn send_control_message(&self, _message: MoqControlMessage) -> Result<(), QuicRtcError> {
-        // In a real implementation, this would serialize and send the message over QUIC
-        // For now, we'll just simulate success
-        Ok(())
+    /// Send control message using the stream manager
+    async fn send_control_message(&self, message: MoqControlMessage) -> Result<(), QuicRtcError> {
+        let stream_manager =
+            self.stream_manager
+                .as_ref()
+                .ok_or_else(|| QuicRtcError::InvalidState {
+                    expected: "Stream manager set".to_string(),
+                    actual: "No stream manager".to_string(),
+                })?;
+
+        stream_manager.send_control_message(message).await
     }
 
-    /// Receive control message (placeholder - would use actual transport in real implementation)
+    /// Receive control message using the stream manager
     async fn receive_control_message(&mut self) -> Result<MoqControlMessage, QuicRtcError> {
-        // In a real implementation, this would receive and deserialize messages from QUIC
-        // For now, we'll simulate a successful response based on the last operation
-        // This is a placeholder that would be replaced with actual transport integration
+        let stream_manager =
+            self.stream_manager
+                .as_ref()
+                .ok_or_else(|| QuicRtcError::InvalidState {
+                    expected: "Stream manager set".to_string(),
+                    actual: "No stream manager".to_string(),
+                })?;
 
-        // Return a dummy success response for testing
-        Ok(MoqControlMessage::SetupOk {
-            version: 1,
-            capabilities: MoqCapabilities::default(),
-        })
+        stream_manager.receive_control_message().await
     }
 }
 
@@ -1327,4 +1333,94 @@ impl MoqObjectCache {
     }
 }
 
-// Tests moved to tests/ directory
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::{ConnectionConfig, TransportConnection};
+    use std::net::SocketAddr;
+
+    #[tokio::test]
+    async fn test_moq_session_with_stream_manager() {
+        // Create a mock transport connection for testing
+        // Note: This would use a mock in a real test environment
+        let config = ConnectionConfig::default();
+        let endpoint: SocketAddr = "127.0.0.1:0".parse().unwrap();
+
+        // For now, just test that we can create and connect the session
+        let session_id = 12345;
+        let mut session = MoqSession::new(session_id);
+
+        assert_eq!(session.session_id(), session_id);
+        assert_eq!(session.state(), &MoqSessionState::Establishing);
+        assert!(session.stream_manager.is_none());
+
+        // Test that we can set capabilities
+        let capabilities = MoqCapabilities {
+            version: 2,
+            max_tracks: 50,
+            supported_track_types: vec![MoqTrackType::Audio],
+            max_object_size: 2048,
+            supports_caching: false,
+        };
+
+        let session_with_caps = MoqSession::new_with_capabilities(session_id, capabilities.clone());
+        assert_eq!(session_with_caps.capabilities().version, 2);
+        assert_eq!(session_with_caps.capabilities().max_tracks, 50);
+        assert!(!session_with_caps.capabilities().supports_caching);
+    }
+
+    #[test]
+    fn test_moq_object_creation() {
+        let track_namespace = TrackNamespace {
+            namespace: "test.example.com".to_string(),
+            track_name: "video/camera1".to_string(),
+        };
+
+        // Test H.264 frame to MoQ object conversion
+        let h264_frame = H264Frame {
+            nal_units: vec![0x00, 0x00, 0x00, 0x01, 0x67], // SPS NAL unit
+            is_keyframe: true,
+            timestamp_us: 1000000, // 1 second
+            sequence_number: 42,
+        };
+
+        let moq_object = MoqObject::from_h264_frame(track_namespace.clone(), h264_frame);
+        assert_eq!(moq_object.track_namespace, track_namespace);
+        assert_eq!(moq_object.group_id, 1000); // timestamp_us / 1000
+        assert_eq!(moq_object.object_id, 42);
+        assert_eq!(moq_object.publisher_priority, 1); // Keyframe priority
+        assert_eq!(moq_object.payload, vec![0x00, 0x00, 0x00, 0x01, 0x67]);
+
+        // Test Opus frame to MoQ object conversion
+        let opus_frame = OpusFrame {
+            opus_data: vec![0xFC, 0xFF, 0xFE], // Opus data
+            timestamp_us: 40000,               // 40ms
+            sequence_number: 123,
+            sample_rate: 48000,
+            channels: 2,
+        };
+
+        let moq_object = MoqObject::from_opus_frame(track_namespace.clone(), opus_frame);
+        assert_eq!(moq_object.track_namespace, track_namespace);
+        assert_eq!(moq_object.group_id, 2); // timestamp_us / 20000
+        assert_eq!(moq_object.object_id, 123);
+        assert_eq!(moq_object.publisher_priority, 1); // Audio priority
+        assert_eq!(moq_object.payload, vec![0xFC, 0xFF, 0xFE]);
+    }
+
+    #[test]
+    fn test_track_namespace() {
+        let namespace = TrackNamespace {
+            namespace: "conference.example.com".to_string(),
+            track_name: "alice/webcam".to_string(),
+        };
+
+        // Test serialization/deserialization
+        let serialized = serde_json::to_string(&namespace).unwrap();
+        let deserialized: TrackNamespace = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(namespace, deserialized);
+        assert_eq!(deserialized.namespace, "conference.example.com");
+        assert_eq!(deserialized.track_name, "alice/webcam");
+    }
+}

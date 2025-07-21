@@ -490,6 +490,52 @@ impl MoqStreamManager {
         Ok(())
     }
 
+    /// Receive control message from control stream
+    pub async fn receive_control_message(&self) -> Result<MoqControlMessage, QuicRtcError> {
+        let control_stream_id = {
+            let control_id = self.control_stream_id.read();
+            control_id.ok_or_else(|| QuicRtcError::InvalidState {
+                expected: "Control stream established".to_string(),
+                actual: "No control stream".to_string(),
+            })?
+        };
+
+        // Receive data with timeout
+        let receive_future = async {
+            let mut streams = self.streams.write();
+            if let Some(stream) = streams.get_mut(&control_stream_id) {
+                match stream.quic_stream.recv().await? {
+                    Some(bytes) => {
+                        stream.stats.bytes_received += bytes.len() as u64;
+                        stream.last_activity = Instant::now();
+
+                        // Decode control message
+                        let message = MoqWireFormat::decode_control_message(&bytes)?;
+                        debug!("Received control message: {:?}", message);
+                        Ok(message)
+                    }
+                    None => {
+                        // Stream closed
+                        Err(QuicRtcError::Transport {
+                            reason: "Control stream closed by peer".to_string(),
+                        })
+                    }
+                }
+            } else {
+                Err(QuicRtcError::StreamNotFound {
+                    stream_id: control_stream_id,
+                })
+            }
+        };
+
+        timeout(self.config.control_stream_timeout, receive_future)
+            .await
+            .map_err(|_| QuicRtcError::Timeout {
+                operation: "Receive control message".to_string(),
+                duration: self.config.control_stream_timeout,
+            })?
+    }
+
     /// Create data stream for track objects (Section 9.4)
     pub async fn create_data_stream(
         &self,
@@ -787,4 +833,3 @@ mod tests {
         assert!(config.enable_cleanup);
     }
 }
- 

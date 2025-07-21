@@ -765,44 +765,51 @@ impl ResourceManager {
         }
     }
 
-    /// Get current memory usage (placeholder implementation)
+    /// Get current memory usage
     fn get_memory_usage() -> u64 {
-        // This would use platform-specific APIs like:
+        // TODO: Implement platform-specific memory monitoring
         // - Windows: GetProcessMemoryInfo
-        // - Linux: /proc/self/status
-        // - macOS: task_info
-        // For now, return a placeholder value
-        25 // 25 MB placeholder
+        // - Linux: /proc/self/status or /proc/self/statm
+        // - macOS: task_info with TASK_BASIC_INFO
+        todo!("Implement platform-specific memory usage monitoring")
     }
 
-    /// Get current bandwidth usage (placeholder implementation)  
+    /// Get current bandwidth usage
     fn get_bandwidth_usage() -> u64 {
-        // This would track network I/O from QUIC connections
-        500 // 500 kbps placeholder
+        // TODO: Implement network I/O tracking from QUIC connections
+        // Should aggregate bytes sent/received across all active connections
+        // and calculate bandwidth over a sliding time window
+        todo!("Implement bandwidth usage tracking from QUIC connections")
     }
 
-    /// Get number of active connections (placeholder implementation)
+    /// Get number of active connections
     fn get_active_connections() -> u32 {
-        // This would be tracked by the connection pool
-        2 // 2 connections placeholder
+        // TODO: Track this from the connection pool
+        // Should return the actual count of active connections
+        todo!("Implement active connection counting from connection pool")
     }
 
-    /// Get number of active streams (placeholder implementation)
+    /// Get number of active streams
     fn get_active_streams() -> u32 {
-        // This would be tracked across all connections
-        4 // 4 streams placeholder
+        // TODO: Track this across all connections
+        // Should aggregate stream counts from all active connections
+        todo!("Implement active stream counting across all connections")
     }
 
-    /// Get number of cached objects (placeholder implementation)
+    /// Get number of cached objects
     fn get_cached_objects() -> u32 {
-        // This would be tracked by the MoQ object cache
-        50 // 50 objects placeholder
+        // TODO: Track this from the MoQ object cache
+        // Should return the actual count of cached MoQ objects
+        todo!("Implement cached object counting from MoQ cache")
     }
 
-    /// Get current CPU usage (placeholder implementation)
+    /// Get current CPU usage
     fn get_cpu_usage() -> f32 {
-        // This would use platform-specific CPU monitoring
-        15.5 // 15.5% placeholder
+        // TODO: Implement platform-specific CPU monitoring
+        // - Windows: GetSystemTimes or PdhCollectQueryData
+        // - Linux: /proc/stat parsing
+        // - macOS: host_processor_info with PROCESSOR_CPU_LOAD_INFO
+        todo!("Implement platform-specific CPU usage monitoring")
     }
 
     /// Check for resource warnings

@@ -1,141 +1,136 @@
 //! Basic usage example for QUIC RTC
 //!
-//! This example demonstrates real audio capture and rendering.
+//! This example demonstrates audio generation, Opus encoding/decoding, and audio rendering.
 
-use quicrtc_media::capture::{AudioCapture, AudioCaptureConfig, CpalAudioCapture};
-use quicrtc_media::codecs::{SyncDecoder, SyncEncoder};
+use quicrtc_media::codecs::{OpusCodec, OpusConfig, SyncDecoder, SyncEncoder};
 use quicrtc_media::render::{AudioRenderConfig, AudioRenderer, CpalAudioRenderer};
-use quicrtc_media::tracks::MediaFrame;
+use quicrtc_media::tracks::{AudioFrame, MediaFrame};
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔄 Testing Pipeline Debug");
-    test_pipeline_debug().await?;
+    println!("🎵 Testing Audio Pipeline");
+    test_audio_pipeline().await?;
     Ok(())
 }
 
-/// Test pipeline with debug info to identify frame size issue
-async fn test_pipeline_debug() -> Result<(), Box<dyn std::error::Error>> {
-    let mut capture = CpalAudioCapture::new();
-
-    // Configure for mono audio to match capture
-    let config = quicrtc_media::codecs::OpusConfig {
+/// Test complete audio pipeline: generation -> encoding -> decoding -> rendering
+async fn test_audio_pipeline() -> Result<(), Box<dyn std::error::Error>> {
+    // Configure Opus codec for 48kHz mono audio
+    let opus_config = OpusConfig {
         sample_rate: 48000,
         channels: 1,
         bitrate: 64000,
         frame_duration_ms: 20,
     };
-    let codec = quicrtc_media::codecs::OpusCodec::with_config(config)?;
+    let codec = OpusCodec::with_config(opus_config)?;
 
-    let capture_config = AudioCaptureConfig {
+    // Configure audio renderer
+    let render_config = AudioRenderConfig {
         sample_rate: 48000,
         channels: 1,
         bits_per_sample: 16,
-        buffer_size: 960, // Match Opus frame size (20ms at 48kHz)
+        buffer_size: 960, // 20ms at 48kHz
         device_name: None,
-        echo_cancellation: true,
-        noise_suppression: true,
-        auto_gain_control: true,
+        volume: 0.5, // Lower volume for testing
+        enable_effects: false,
     };
 
-    println!("🎤 Starting real audio capture...");
-    let mut audio_receiver = capture.start(capture_config)?;
+    println!("🔊 Starting audio renderer...");
+    let mut renderer = CpalAudioRenderer::new();
+    let audio_sender = renderer.start(render_config)?;
 
-    println!("🔄 Analyzing audio frames for 2 seconds...");
+    println!("🎶 Generating and processing audio for 3 seconds...");
 
     let start_time = std::time::Instant::now();
     let mut frame_count = 0;
-    let mut total_samples = 0;
-    let mut min_samples = usize::MAX;
-    let mut max_samples = 0;
 
-    while start_time.elapsed() < Duration::from_secs(2) {
-        if let Ok(frame_result) =
-            tokio::time::timeout(Duration::from_millis(100), audio_receiver.recv()).await
-        {
-            if let Some(audio_frame) = frame_result {
-                frame_count += 1;
-                let samples_count = audio_frame.samples.len();
-                total_samples += samples_count;
-                min_samples = min_samples.min(samples_count);
-                max_samples = max_samples.max(samples_count);
+    while start_time.elapsed() < Duration::from_secs(3) {
+        // Generate a 20ms audio frame (960 samples at 48kHz)
+        let samples_per_frame = 960;
+        let mut samples = Vec::with_capacity(samples_per_frame);
 
-                // Debug first few frames
-                if frame_count <= 3 {
-                    println!(
-                        "   📊 Frame {}: {} samples, {} channels, {} Hz",
-                        frame_count, samples_count, audio_frame.channels, audio_frame.sample_rate
-                    );
-                }
+        // Generate a 440Hz sine wave (A note)
+        for i in 0..samples_per_frame {
+            let t = (frame_count * samples_per_frame + i) as f32 / 48000.0;
+            let sample = 0.3 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+            samples.push(sample);
+        }
 
-                // Try to encode only if frame size matches Opus expectation
-                let expected_samples = 960; // 20ms at 48kHz mono
-                if samples_count == expected_samples {
-                    println!(
-                        "   ✅ Frame {} has correct size, attempting encode...",
-                        frame_count
-                    );
+        // Create audio frame
+        let audio_frame = AudioFrame {
+            samples,
+            sample_rate: 48000,
+            channels: 1,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+        };
 
-                    let audio_frame_data = quicrtc_media::tracks::AudioFrame {
-                        samples: audio_frame.samples,
-                        sample_rate: audio_frame.sample_rate,
-                        channels: audio_frame.channels,
-                        timestamp: audio_frame.timestamp,
-                    };
-                    let media_frame = MediaFrame::Audio(audio_frame_data);
+        let media_frame = MediaFrame::Audio(audio_frame);
 
-                    match codec.encode_sync(&media_frame) {
-                        Ok(encoded_data) => {
-                            println!(
-                                "   🎉 Successfully encoded {} samples into {} bytes!",
-                                expected_samples,
-                                encoded_data.len()
-                            );
-                            break; // We found one that works!
-                        }
-                        Err(e) => {
-                            println!("   ❌ Encode error even with correct size: {:?}", e);
-                        }
-                    }
-                } else {
-                    if frame_count <= 5 {
+        // Encode with Opus
+        match codec.encode_sync(&media_frame) {
+            Ok(encoded_data) => {
+                println!(
+                    "✅ Frame {}: Encoded {} samples into {} bytes",
+                    frame_count + 1,
+                    samples_per_frame,
+                    encoded_data.len()
+                );
+
+                // Decode back from Opus
+                match codec.decode_sync(&encoded_data) {
+                    Ok(MediaFrame::Audio(decoded_frame)) => {
                         println!(
-                            "   ⚠️  Frame {} size mismatch: got {}, expected {}",
-                            frame_count, samples_count, expected_samples
+                            "✅ Frame {}: Decoded {} bytes into {} samples",
+                            frame_count + 1,
+                            encoded_data.len(),
+                            decoded_frame.samples.len()
                         );
-                    }
-                }
 
-                if frame_count >= 20 {
-                    break; // Don't run forever
+                        // Send to renderer
+                        if let Err(e) = audio_sender.send(decoded_frame).await {
+                            println!("⚠️  Failed to send to renderer: {}", e);
+                            break;
+                        }
+                    }
+                    Ok(_) => {
+                        println!("❌ Decoded frame is not audio");
+                    }
+                    Err(e) => {
+                        println!("❌ Decode error: {:?}", e);
+                    }
                 }
             }
+            Err(e) => {
+                println!("❌ Encode error: {:?}", e);
+            }
         }
+
+        frame_count += 1;
+
+        // Wait for next frame (20ms)
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    capture.stop()?;
+    println!("🛑 Stopping audio renderer...");
+    renderer.stop()?;
 
-    println!("\n📊 Frame Analysis Summary:");
-    println!("   Total frames: {}", frame_count);
-    println!("   Total samples: {}", total_samples);
-    if frame_count > 0 {
-        println!(
-            "   Average samples per frame: {}",
-            total_samples / frame_count
-        );
-        println!("   Min samples per frame: {}", min_samples);
-        println!("   Max samples per frame: {}", max_samples);
-        println!("   Expected samples per frame: 960 (20ms at 48kHz)");
+    println!("\n📊 Pipeline Summary:");
+    println!("   Total frames processed: {}", frame_count);
+    println!("   Duration: {:.1}s", start_time.elapsed().as_secs_f32());
+    println!(
+        "   Avg frame rate: {:.1} fps",
+        frame_count as f32 / start_time.elapsed().as_secs_f32()
+    );
 
-        if min_samples == max_samples && min_samples == 960 {
-            println!("   🎉 All frames have perfect size!");
-        } else if min_samples != max_samples {
-            println!("   ⚠️  Frame sizes vary - this is the problem!");
-        } else {
-            println!("   ⚠️  Consistent size but not 960 - check configuration!");
-        }
-    }
+    let stats = renderer.stats();
+    println!("   Renderer stats:");
+    println!("     - Frames rendered: {}", stats.frames_rendered);
+    println!("     - Frames dropped: {}", stats.frames_dropped);
+    println!("     - Buffer level: {:.1}%", stats.buffer_level * 100.0);
 
     Ok(())
 }
