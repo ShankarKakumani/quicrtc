@@ -23,12 +23,17 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 bytes = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "init_test"
+path = "../examples/init_test.rs"
 
 [[example]]
 name = "basic_usage"
