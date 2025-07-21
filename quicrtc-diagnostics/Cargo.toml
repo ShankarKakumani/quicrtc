@@ -1,0 +1,29 @@
+[package]
+name = "quicrtc-diagnostics"
+version = "0.1.0"
+edition = "2021"
+description = "Debugging and diagnostic tools for QUIC RTC"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Core dependencies
+quicrtc-core = { path = "../quicrtc-core" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging and diagnostics
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

@@ -1,0 +1,34 @@
+[package]
+name = "quicrtc-signaling"
+version = "0.1.0"
+edition = "2021"
+description = "Signaling server and peer discovery for QUIC RTC"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Core dependencies
+quicrtc-core = { path = "../quicrtc-core" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# WebSocket support
+tokio-tungstenite = { workspace = true }
+tungstenite = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+dashmap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

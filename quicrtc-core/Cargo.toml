@@ -1,0 +1,46 @@
+[package]
+name = "quicrtc-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core QUIC transport and MoQ protocol implementation for QUIC RTC"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# QUIC implementation
+quinn = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+
+# Async runtime and utilities
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Networking
+socket2 = { workspace = true }
+bytes = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tungstenite = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+
+# Certificate handling
+rcgen = { workspace = true }
+rustls-pemfile = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

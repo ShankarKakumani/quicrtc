@@ -1,0 +1,37 @@
+[package]
+name = "quicrtc-media"
+version = "0.1.0"
+edition = "2021"
+description = "Media processing, codecs, and quality control for QUIC RTC"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Core dependencies
+quicrtc-core = { path = "../quicrtc-core" }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Media codecs - Real codec libraries
+audiopus = { workspace = true, optional = true }
+openh264 = { workspace = true, optional = true }
+cpal = { workspace = true }
+
+# Utilities
+bytes = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[features]
+default = ["opus"]
+opus = ["audiopus"]
+h264 = ["openh264"]
+audio = ["opus"]
+video = ["h264"]

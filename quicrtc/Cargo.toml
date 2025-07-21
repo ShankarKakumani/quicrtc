@@ -1,0 +1,74 @@
+[package]
+name = "quicrtc"
+version = "0.1.0"
+edition = "2021"
+description = "QUIC-based real-time communication library implementing IETF Media over QUIC (MoQ)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/quicrtc"
+keywords = ["quic", "webrtc", "moq", "real-time", "communication"]
+categories = ["network-programming", "multimedia"]
+
+[dependencies]
+# Re-export all functionality from other crates
+quicrtc-core = { path = "../quicrtc-core" }
+quicrtc-media = { path = "../quicrtc-media", optional = true }
+quicrtc-signaling = { path = "../quicrtc-signaling", optional = true }
+quicrtc-diagnostics = { path = "../quicrtc-diagnostics", optional = true }
+
+# Workspace dependencies
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+bytes = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "basic_usage"
+path = "../examples/basic_usage.rs"
+
+[[example]]
+name = "transport_demo"
+path = "../examples/transport_demo.rs"
+
+[[example]]
+name = "resource_management_demo"
+path = "../examples/resource_management_demo.rs"
+
+[[example]]
+name = "moq_object_demo"
+path = "../examples/moq_object_demo.rs"
+
+[[example]]
+name = "signaling_server_demo"
+path = "../examples/signaling_server_demo.rs"
+
+[[example]]
+name = "moq_wire_format_demo"
+path = "../examples/moq_wire_format_demo.rs"
+
+[[example]]
+name = "moq_stream_management_demo"
+path = "../examples/moq_stream_management_demo.rs"
+
+[[example]]
+name = "video_capture_demo"
+path = "../examples/video_capture_demo.rs"
+
+[[example]]
+name = "video_capture_render_demo"
+path = "../examples/video_capture_render_demo.rs"
+
+[features]
+default = ["full"]
+full = ["media", "signaling", "diagnostics"]
+media = ["dep:quicrtc-media"]
+signaling = ["dep:quicrtc-signaling"]
+diagnostics = ["dep:quicrtc-diagnostics"]
