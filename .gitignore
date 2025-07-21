@@ -27,6 +27,7 @@ $RECYCLE.BIN/
 
 # Project specific
 .kiro/
+.idea/
 
 # Logs
 *.log

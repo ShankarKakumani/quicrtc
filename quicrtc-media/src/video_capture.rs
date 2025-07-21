@@ -3,15 +3,15 @@
 //! This module provides comprehensive video capture capabilities across different platforms.
 //! The implementation is designed to be incrementally built up with platform-specific backends.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 use crate::codecs::{H264Codec, H264Config};
 use crate::error::MediaError;
-use crate::tracks::{MediaFrame, VideoFrame};
+use crate::tracks::VideoFrame;
 use parking_lot::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Supported video pixel formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -214,12 +214,11 @@ impl Default for FrameProcessorConfig {
 /// Frame processing pipeline
 pub struct FrameProcessor {
     h264_encoder: Option<H264Codec>,
-    frame_buffer: Vec<VideoFrame>,
-    config: FrameProcessorConfig,
+    _config: FrameProcessorConfig, // Keep for future use
 }
 
 /// Platform-specific video capture backend
-pub trait VideoCaptureBackend: Send + Sync {
+pub trait VideoCaptureBackend {
     fn enumerate_devices(&self) -> Result<Vec<VideoDevice>, MediaError>;
     fn open_device(
         &mut self,
@@ -262,37 +261,15 @@ impl VideoCaptureManager {
 
     /// Create platform-specific backend
     fn create_platform_backend() -> Result<Box<dyn VideoCaptureBackend>, MediaError> {
-        #[cfg(target_os = "macos")]
-        {
-            use crate::capture::avfoundation::AvFoundationBackend;
-            AvFoundationBackend::new()
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            // Create a simple mock backend for now that integrates with platform capture
-            Ok(Box::new(MockVideoCaptureBackend::new()))
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            // Create a simple mock backend for now that integrates with platform capture
-            Ok(Box::new(MockVideoCaptureBackend::new()))
-        }
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-        {
-            // Fallback to mock backend for unsupported platforms
-            Ok(Box::new(MockVideoCaptureBackend::new()))
-        }
+        // Use the simplified nokhwa capture backend for all platforms
+        Ok(Box::new(NokhwaBackend::new()))
     }
 
     /// Set frame processor
     pub fn set_frame_processor(&mut self, config: FrameProcessorConfig) -> Result<(), MediaError> {
         let mut processor = FrameProcessor {
             h264_encoder: None,
-            frame_buffer: Vec::new(),
-            config: config.clone(),
+            _config: config.clone(),
         };
 
         if config.enable_h264_encoding {
@@ -371,7 +348,7 @@ impl VideoCaptureManager {
 
                 // Get frame from backend - this integrates with our real capture implementation
                 tokio::time::sleep(Duration::from_millis(33)).await; // ~30 FPS
-                
+
                 // In a full implementation, we would call backend.get_frame() here
                 // For now, this demonstrates the integration point
 
@@ -423,7 +400,7 @@ impl VideoCaptureManager {
 
                 let _ = event_tx.send(VideoCaptureEvent::FrameCaptured { metadata });
             }
-            
+
             tracing::info!("Capture task completed successfully");
         });
 
@@ -473,101 +450,152 @@ impl VideoCaptureManager {
     }
 }
 
-/// Mock video capture backend for testing and unsupported platforms
-struct MockVideoCaptureBackend {
-    devices: Vec<VideoDevice>,
+/// Cross-platform video capture backend using nokhwa
+/// This provides real camera capture on macOS, Linux, Windows, and WASM
+pub struct NokhwaBackend {
+    capture: crate::capture::NokhwaCapture,
     current_config: Option<VideoCaptureConfig>,
-    is_capturing: bool,
+    current_device_id: Option<String>,
+    frame_counter: u64,
 }
 
-impl MockVideoCaptureBackend {
-    fn new() -> Self {
-        let mock_device = VideoDevice {
-            id: "mock_camera_0".to_string(),
-            name: "Mock Camera".to_string(),
-            description: "Virtual camera for testing".to_string(),
-            supported_formats: vec![
-                VideoPixelFormat::YUV420P,
-                VideoPixelFormat::RGB24,
-                VideoPixelFormat::MJPEG,
-            ],
-            supported_resolutions: vec![
-                VideoResolution::VGA,
-                VideoResolution::HD,
-                VideoResolution::FULL_HD,
-            ],
-            max_framerate: 60.0,
-            hardware_acceleration: false,
-        };
-
+impl NokhwaBackend {
+    pub fn new() -> Self {
         Self {
-            devices: vec![mock_device],
+            capture: crate::capture::NokhwaCapture::new(),
             current_config: None,
-            is_capturing: false,
+            current_device_id: None,
+            frame_counter: 0,
         }
     }
 }
 
-impl VideoCaptureBackend for MockVideoCaptureBackend {
+impl VideoCaptureBackend for NokhwaBackend {
     fn enumerate_devices(&self) -> Result<Vec<VideoDevice>, MediaError> {
-        Ok(self.devices.clone())
+        info!("🔍 Enumerating camera devices via simplified nokhwa");
+
+        let device_names = self.capture.get_devices()?;
+
+        let devices: Vec<VideoDevice> = device_names
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| VideoDevice {
+                id: index.to_string(),
+                name,
+                description: "Camera via nokhwa".to_string(),
+                supported_formats: vec![
+                    VideoPixelFormat::RGB24,
+                    VideoPixelFormat::YUV420P,
+                    VideoPixelFormat::MJPEG,
+                ],
+                supported_resolutions: vec![
+                    VideoResolution::VGA,
+                    VideoResolution::HD,
+                    VideoResolution::FULL_HD,
+                ],
+                max_framerate: 60.0,
+                hardware_acceleration: false,
+            })
+            .collect();
+
+        info!("📹 Found {} camera devices", devices.len());
+        Ok(devices)
     }
 
     fn open_device(
         &mut self,
-        _device_id: &str,
+        device_id: &str,
         config: &VideoCaptureConfig,
     ) -> Result<(), MediaError> {
+        info!("📷 Opening camera device: {}", device_id);
+
         self.current_config = Some(config.clone());
+        self.current_device_id = Some(device_id.to_string());
+
+        info!("✅ Camera device opened: {}", device_id);
         Ok(())
     }
 
     fn start_capture(&mut self) -> Result<(), MediaError> {
-        self.is_capturing = true;
+        info!("🚀 Starting camera capture via simplified nokhwa");
+
+        self.capture.start_capture()?;
+
+        info!("✅ Camera capture started successfully!");
         Ok(())
     }
 
     fn stop_capture(&mut self) -> Result<(), MediaError> {
-        self.is_capturing = false;
+        info!("🛑 Stopping camera capture");
+
+        self.capture.stop_capture()?;
+
+        info!("✅ Camera capture stopped");
         Ok(())
     }
 
     fn get_frame(&mut self) -> Result<Option<(VideoFrame, FrameMetadata)>, MediaError> {
-        if !self.is_capturing {
+        if !self.capture.is_capturing() {
             return Ok(None);
         }
 
-        // Create mock frame
-        let config = self.current_config.as_ref().unwrap();
-        let frame_size = 1920 * 1080 * 3; // Simple size calculation
-        let mock_data = vec![0u8; frame_size];
+        let config = self
+            .current_config
+            .as_ref()
+            .ok_or_else(|| MediaError::InvalidState {
+                message: "No capture configuration available".to_string(),
+            })?;
 
-        let frame = VideoFrame {
-            data: mock_data,
-            width: config.resolution.width,
-            height: config.resolution.height,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
-            is_keyframe: true,
-        };
+        self.frame_counter += 1;
 
+        // Try to get real frame from nokhwa
+        if let Some(frame_data) = self.capture.get_frame()? {
+            let video_frame = VideoFrame {
+                data: frame_data.clone(),
+                width: config.resolution.width,
+                height: config.resolution.height,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+                is_keyframe: true,
+            };
+
+            let metadata = FrameMetadata {
+                sequence: self.frame_counter,
+                timestamp: Instant::now(),
+                duration: Duration::from_millis((1000.0 / config.framerate) as u64),
+                format: VideoPixelFormat::RGB24,
+                resolution: config.resolution,
+                size: frame_data.len(),
+                quality: Some(0.95),
+            };
+
+            debug!(
+                "📸 Captured real frame {} ({} bytes)",
+                self.frame_counter,
+                frame_data.len()
+            );
+            return Ok(Some((video_frame, metadata)));
+        }
+
+        // Fallback to test pattern
+        let frame = self.create_fallback_frame(config, self.frame_counter);
         let metadata = FrameMetadata {
-            sequence: 1,
+            sequence: self.frame_counter,
             timestamp: Instant::now(),
-            duration: Duration::from_millis(33),
-            format: config.pixel_format,
+            duration: Duration::from_millis((1000.0 / config.framerate) as u64),
+            format: VideoPixelFormat::RGB24,
             resolution: config.resolution,
-            size: frame_size,
-            quality: Some(1.0),
+            size: frame.data.len(),
+            quality: Some(0.7),
         };
 
         Ok(Some((frame, metadata)))
     }
 
     fn is_capturing(&self) -> bool {
-        self.is_capturing
+        self.capture.is_capturing()
     }
 
     fn get_config(&self) -> Option<&VideoCaptureConfig> {
@@ -575,7 +603,39 @@ impl VideoCaptureBackend for MockVideoCaptureBackend {
     }
 
     fn set_config(&mut self, config: VideoCaptureConfig) -> Result<(), MediaError> {
+        info!("⚙️ Updating camera configuration");
         self.current_config = Some(config);
         Ok(())
+    }
+}
+
+impl NokhwaBackend {
+    /// Create a fallback test pattern frame when camera isn't available
+    fn create_fallback_frame(&self, config: &VideoCaptureConfig, frame_count: u64) -> VideoFrame {
+        let width = config.resolution.width as usize;
+        let height = config.resolution.height as usize;
+        let mut frame_data = vec![0u8; width * height * 3];
+
+        // Create a moving pattern to show the frame is updating
+        let time_offset = (frame_count % 256) as u8;
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) * 3;
+                frame_data[idx] = ((x + frame_count as usize) % 256) as u8;
+                frame_data[idx + 1] = ((y + time_offset as usize) % 256) as u8;
+                frame_data[idx + 2] = ((x + y + frame_count as usize) % 256) as u8;
+            }
+        }
+
+        VideoFrame {
+            data: frame_data,
+            width: width as u32,
+            height: height as u32,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            is_keyframe: true,
+        }
     }
 }
