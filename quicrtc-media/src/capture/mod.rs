@@ -4,32 +4,32 @@ pub mod v4l2;
 pub mod webrtc;
 
 use crate::error::MediaError;
-use std::sync::Arc;
 
-/// Platform-specific capture backend trait
-pub trait PlatformCapture: Send + Sync {
+/// Simplified platform-specific capture backend trait
+/// This trait is intentionally simple to avoid complex thread safety issues
+pub trait PlatformCapture {
     fn start_capture(&self) -> Result<(), MediaError>;
     fn stop_capture(&self) -> Result<(), MediaError>;
     fn get_devices(&self) -> Result<Vec<String>, MediaError>;
 }
 
 /// Get the appropriate platform capture backend
-pub fn get_platform_capture() -> Arc<dyn PlatformCapture> {
+pub fn get_platform_capture() -> Box<dyn PlatformCapture> {
     #[cfg(target_os = "macos")]
     {
-        Arc::new(avfoundation::AVFoundationCapture::new())
+        Box::new(avfoundation::AVFoundationCapture::new())
     }
     #[cfg(target_os = "linux")]
     {
-        Arc::new(v4l2::V4L2Capture::new())
+        Box::new(v4l2::V4L2Capture::new())
     }
     #[cfg(target_os = "windows")]
     {
-        Arc::new(directshow::DirectShowCapture::new())
+        Box::new(directshow::DirectShowCapture::new())
     }
     #[cfg(target_arch = "wasm32")]
     {
-        Arc::new(webrtc::WebRTCCapture::new())
+        Box::new(webrtc::WebRTCCapture::new())
     }
     #[cfg(not(any(
         target_os = "macos",
@@ -38,7 +38,7 @@ pub fn get_platform_capture() -> Arc<dyn PlatformCapture> {
         target_arch = "wasm32"
     )))]
     {
-        Arc::new(MockCapture::new())
+        Box::new(MockCapture::new())
     }
 }
 

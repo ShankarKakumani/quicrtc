@@ -79,6 +79,13 @@ pub enum MediaError {
         reason: String,
     },
 
+    /// Device error
+    #[error("Device error: {message}")]
+    DeviceError {
+        /// Error message
+        message: String,
+    },
+
     /// Device not found error
     #[error("Device not found: {device_id}")]
     DeviceNotFound {
@@ -131,6 +138,18 @@ pub enum MediaError {
         /// Operation that was denied
         operation: String,
     },
+
+    /// Camera permission denied error
+    #[error("Camera permission denied. Grant camera access in System Preferences > Security & Privacy > Camera")]
+    CameraPermissionDenied,
+
+    /// Camera permission not determined error  
+    #[error("Camera permission not determined. Request camera access before starting capture")]
+    CameraPermissionNotDetermined,
+
+    /// Camera permission restricted error
+    #[error("Camera permission restricted by system policy")]
+    CameraPermissionRestricted,
 
     /// Audio specific errors
     #[error("Audio error: {message}")]
@@ -222,6 +241,9 @@ impl MediaError {
             MediaError::CodecInitializationFailed { .. } => false,
             MediaError::PermissionDenied { .. } => false,
             MediaError::HardwareAccelerationNotAvailable { .. } => true,
+            MediaError::CameraPermissionDenied => false,
+            MediaError::CameraPermissionNotDetermined => false,
+            MediaError::CameraPermissionRestricted => false,
             _ => false,
         }
     }
@@ -255,6 +277,10 @@ impl MediaError {
             MediaError::SampleRateMismatch { .. } => ErrorCategory::Audio,
             MediaError::ChannelCountMismatch { .. } => ErrorCategory::Audio,
             MediaError::BandwidthEstimationError { .. } => ErrorCategory::Network,
+            MediaError::DeviceError { .. } => ErrorCategory::Device,
+            MediaError::CameraPermissionDenied => ErrorCategory::System,
+            MediaError::CameraPermissionNotDetermined => ErrorCategory::System,
+            MediaError::CameraPermissionRestricted => ErrorCategory::System,
         }
     }
 }

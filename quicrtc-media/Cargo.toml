@@ -19,12 +19,40 @@ audiopus = { workspace = true, optional = true }
 openh264 = { workspace = true, optional = true }
 cpal = { workspace = true }
 
+# Video capture dependencies - Fixed versions
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVCaptureSession", "AVCaptureVideoDataOutput", "AVCapturePhotoOutput"] }
+objc2-foundation = "0.3"
+objc2-core-video = "0.3"
+core-video-sys = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+v4l = "0.14"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Media_DirectShow",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_Foundation"
+] }
+
 # Utilities
-bytes = { workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-parking_lot = { workspace = true }
+[dependencies.bytes]
+workspace = true
+
+[dependencies.serde] 
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.parking_lot]
+workspace = true
 
 [dev-dependencies]
 tokio-test = { workspace = true }
