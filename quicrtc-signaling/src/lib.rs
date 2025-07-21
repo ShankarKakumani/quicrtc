@@ -11,7 +11,9 @@ pub mod protocol;
 pub mod server;
 
 // Re-export main types
-pub use discovery::PeerDiscovery;
+pub use discovery::{
+    DiscoveryConfig, DiscoveryEvent, PeerDiscovery, PeerInfo, PeerStatus, RoomStats,
+};
 pub use server::SignalingServer;
 
 #[cfg(test)]
@@ -19,8 +21,8 @@ mod tests {
     use super::*;
     use crate::protocol::*;
     use crate::server::*;
+    use chrono::Utc;
     use std::net::{Ipv4Addr, SocketAddr};
-
 
     fn test_addr() -> SocketAddr {
         SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
@@ -141,11 +143,11 @@ mod tests {
         assert!(room.add_participant(participant3).is_err());
     }
 
-    #[test]
-    fn test_signaling_server_creation() {
+    #[tokio::test]
+    async fn test_signaling_server_creation() {
         let server = SignalingServer::new(test_addr());
-        assert_eq!(server.get_rooms().len(), 0);
-        assert_eq!(server.total_participants(), 0);
+        assert_eq!(server.get_rooms().await.len(), 0);
+        assert_eq!(server.total_participants().await, 0);
     }
 
     #[test]
@@ -289,7 +291,37 @@ mod tests {
     async fn test_peer_discovery_creation() {
         let discovery = PeerDiscovery::new();
         let peers = discovery.discover_peers("test-room").await.unwrap();
-        assert_eq!(peers.len(), 0); // Should be empty for placeholder implementation
+        assert_eq!(peers.len(), 0); // Should be empty for new room
+    }
+
+    #[tokio::test]
+    async fn test_peer_discovery_add_remove() {
+        let discovery = PeerDiscovery::new();
+
+        let peer = PeerInfo {
+            id: "peer-1".to_string(),
+            name: Some("Test Peer".to_string()),
+            room_id: "test-room".to_string(),
+            quic_endpoint: Some(test_addr()),
+            capabilities: vec!["h264".to_string()],
+            last_seen: Utc::now(),
+            status: PeerStatus::Online,
+        };
+
+        // Add peer
+        assert!(discovery.add_peer(peer.clone()).await.is_ok());
+
+        // Check peer was added
+        let peers = discovery.discover_peers("test-room").await.unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].id, "peer-1");
+
+        // Remove peer
+        assert!(discovery.remove_peer("test-room", "peer-1").await.is_ok());
+
+        // Check peer was removed
+        let peers = discovery.discover_peers("test-room").await.unwrap();
+        assert_eq!(peers.len(), 0);
     }
 
     #[test]

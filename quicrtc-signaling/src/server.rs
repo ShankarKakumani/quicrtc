@@ -3,7 +3,6 @@
 use crate::protocol::{MoqSessionAnswer, MoqSessionOffer, SignalingMessage, SignalingResponse};
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
-use parking_lot::RwLock;
 use quicrtc_core::QuicRtcError;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -11,6 +10,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use uuid::Uuid;
 
@@ -106,9 +106,10 @@ type WebSocketConnection = WebSocketStream<TcpStream>;
 type Connections = Arc<DashMap<String, WebSocketConnection>>;
 
 /// Signaling server for peer discovery and room management
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SignalingServer {
-    bind_addr: SocketAddr,
+    /// Address the server binds to
+    pub bind_addr: SocketAddr,
     rooms: Arc<RwLock<HashMap<String, Room>>>,
     connections: Connections,
     participant_to_connection: Arc<DashMap<String, String>>,
@@ -304,7 +305,7 @@ impl SignalingServer {
 
         // Add participant to room
         {
-            let mut rooms = self.rooms.write();
+            let mut rooms = self.rooms.write().await;
             let room = rooms
                 .get_mut(&room_id)
                 .ok_or_else(|| QuicRtcError::RoomNotFound {
@@ -352,7 +353,7 @@ impl SignalingServer {
     ) -> Result<(), QuicRtcError> {
         // Remove participant from room
         let removed_participant = {
-            let mut rooms = self.rooms.write();
+            let mut rooms = self.rooms.write().await;
             if let Some(room) = rooms.get_mut(&room_id) {
                 room.remove_participant(&participant_id)
             } else {
@@ -406,7 +407,7 @@ impl SignalingServer {
 
         // Create room
         {
-            let mut rooms = self.rooms.write();
+            let mut rooms = self.rooms.write().await;
             if rooms.contains_key(&room_id) {
                 return Err(QuicRtcError::RoomAlreadyExists { room_id });
             }
@@ -484,7 +485,7 @@ impl SignalingServer {
 
     /// Handle list rooms request
     async fn handle_list_rooms(&self, connection_id: String) -> Result<(), QuicRtcError> {
-        let rooms = self.rooms.read();
+        let rooms = self.rooms.read().await;
         let room_list: Vec<_> = rooms
             .values()
             .map(|room| (room.id.clone(), room.name.clone(), room.participants.len()))
@@ -504,7 +505,7 @@ impl SignalingServer {
         connection_id: String,
         room_id: String,
     ) -> Result<(), QuicRtcError> {
-        let rooms = self.rooms.read();
+        let rooms = self.rooms.read().await;
         if let Some(room) = rooms.get(&room_id) {
             let participants: Vec<_> = room.participants.values().cloned().collect();
             self.send_response(
@@ -561,7 +562,7 @@ impl SignalingServer {
         response: SignalingResponse,
     ) {
         let participants = {
-            let rooms = self.rooms.read();
+            let rooms = self.rooms.read().await;
             if let Some(room) = rooms.get(room_id) {
                 room.other_participants(exclude_participant)
                     .into_iter()
@@ -592,7 +593,7 @@ impl SignalingServer {
         if let Some(participant_id) = participant_id {
             // Remove from all rooms
             let room_ids: Vec<String> = {
-                let rooms = self.rooms.read();
+                let rooms = self.rooms.read().await;
                 rooms
                     .iter()
                     .filter(|(_, room)| room.participants.contains_key(&participant_id))
@@ -617,21 +618,22 @@ impl SignalingServer {
         self.participant_to_connection.clear();
 
         // Clear all rooms
-        self.rooms.write().clear();
+        self.rooms.write().await.clear();
 
         tracing::info!("Signaling server stopped");
         Ok(())
     }
 
     /// Get current rooms (for monitoring/debugging)
-    pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms.read().values().cloned().collect()
+    pub async fn get_rooms(&self) -> Vec<Room> {
+        self.rooms.read().await.values().cloned().collect()
     }
 
     /// Get participant count across all rooms
-    pub fn total_participants(&self) -> usize {
+    pub async fn total_participants(&self) -> usize {
         self.rooms
             .read()
+            .await
             .values()
             .map(|room| room.participants.len())
             .sum()
