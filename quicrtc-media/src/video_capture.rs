@@ -243,6 +243,16 @@ pub struct VideoCaptureManager {
     capture_task: Option<tokio::task::JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for VideoCaptureManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoCaptureManager")
+            .field("config", &self.config)
+            .field("frame_processor", &self.frame_processor.is_some())
+            .field("capture_task", &self.capture_task.is_some())
+            .finish()
+    }
+}
+
 impl VideoCaptureManager {
     /// Create new video capture manager
     pub fn new() -> Result<Self, MediaError> {

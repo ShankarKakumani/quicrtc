@@ -664,6 +664,16 @@ pub struct CpalAudioRenderer {
     audio_buffer: Arc<std::sync::Mutex<VecDeque<AudioFrame>>>,
 }
 
+impl std::fmt::Debug for CpalAudioRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CpalAudioRenderer")
+            .field("is_rendering", &self.is_rendering.load(Ordering::Relaxed))
+            .field("stats", &self.stats)
+            .field("volume", &self.volume)
+            .finish()
+    }
+}
+
 impl CpalAudioRenderer {
     /// Create a new CPAL audio renderer instance
     pub fn new() -> Self {

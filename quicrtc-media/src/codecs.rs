@@ -23,7 +23,7 @@ use openh264::{
 };
 
 /// Video quality presets for easy configuration
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoQuality {
     /// 320x240, 15fps, optimized for poor networks
     Low,

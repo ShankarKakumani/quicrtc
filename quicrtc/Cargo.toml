@@ -26,10 +26,16 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 bytes = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "room_builder_demo"
+path = "../examples/room_builder_demo.rs"
 
 [[example]]
 name = "init_test"
